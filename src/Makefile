@@ -1,0 +1,1 @@
+obj-${CONFIG_xmurp-ua}	+= xmurp-ua.o

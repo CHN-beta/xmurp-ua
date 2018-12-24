@@ -1,0 +1,2 @@
+config xmurp-ua
+	tristate "xmurp-ua"
