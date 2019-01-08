@@ -136,6 +136,7 @@ inline u_int8_t skb_scan(char *data_start, char *data_end)
 }
 
 // 捕获数据包，检查是否符合条件。如果符合，则送到下一层，并根据下一层返回的结果，如果必要的话，重新计算校验和以及继续捕获下一个分片。
+// ip地址、端口号、iph->tot_len需要网络顺序到主机顺序的转换。校验和时，除长度字段外，不需要手动进行网络顺序和主机顺序的转换。
 unsigned int hook_funcion(void *priv, struct sk_buff *skb, const struct nf_hook_state *state)
 {
 	register struct tcphdr *tcph;
@@ -154,14 +155,16 @@ unsigned int hook_funcion(void *priv, struct sk_buff *skb, const struct nf_hook_
 	if(skb == 0)
 		return NF_ACCEPT;
 	iph = ip_hdr(skb);
+	if((ntohl(iph->daddr) & 0xffff0000) == 0xc0a80000)
+		return NF_ACCEPT;
 	if(iph->protocol != IPPROTO_TCP)
 		return NF_ACCEPT;
 	tcph = tcp_hdr(skb);
-	if(tcph->dest != 80)
+	if(ntohs(tcph->dest) != 80)
 		return NF_ACCEPT;
 	data_start = (char *)tcph + tcph->doff * 4;
-	data_end = data_start + (iph->tot_len - iph->ihl * 4 - tcph->doff * 4);
-	if((iph->daddr & 0xffff0000) == 0xc0a80000)
+	data_end = (char *)tcph + ntohs(iph->tot_len) - iph->ihl * 4;
+	if(data_end - data_start < 4)
 		return NF_ACCEPT;
 	
 	// 决定是否发送到下一层
@@ -208,9 +211,9 @@ unsigned int hook_funcion(void *priv, struct sk_buff *skb, const struct nf_hook_
 					n_ua_modified, n_ua_modify_faild);
 		tcph->check = 0;
 		iph->check = 0;
-		iph->check = ip_fast_csum((char *)ip_hdr(skb), ip_hdr(skb)->ihl);
-		skb->csum = skb_checksum(skb, iph->ihl * 4, skb->len - iph->ihl * 4, 0);
-		tcph->check = csum_tcpudp_magic(iph->saddr, iph->daddr, skb->len - iph->ihl * 4, IPPROTO_TCP, skb->csum);
+		skb->csum = skb_checksum(skb, iph->ihl * 4, ntohs(iph->tot_len) - iph->ihl * 4, 0);
+		iph->check = ip_fast_csum(iph, iph->ihl);
+		tcph->check = csum_tcpudp_magic(iph->saddr, iph->daddr, ntohs(iph->tot_len) - iph->ihl * 4, IPPROTO_TCP, skb->csum);
 	}
 
 	return NF_ACCEPT;
@@ -224,7 +227,11 @@ static int __init hook_init(void)
 	nfho.pf = NFPROTO_IPV4;
 	nfho.hooknum = NF_INET_POST_ROUTING;
 	nfho.priority = NF_IP_PRI_FILTER;
-	ret = nf_register_hook(&nfho);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,13,0)
+    ret = nf_register_net_hook(&init_net, &nfho);
+#else
+    ret = nf_register_hook(&nfho);
+#endif
 	printk("xmurp-ua start\n");
 	printk("nf_register_hook returnd %d\n", ret);
 
@@ -234,7 +241,11 @@ static int __init hook_init(void)
 //卸载模块
 static void __exit hook_exit(void)
 {
-	nf_unregister_hook(&nfho);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,13,0)
+    nf_unregister_net_hook(&init_net, &nfho);
+#else
+    nf_unregister_hook(&nfho);
+#endif
 	printk("xmurp-ua stop\n");
 }
 
