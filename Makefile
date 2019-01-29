@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 include $(INCLUDE_DIR)/kernel.mk
  
 PKG_NAME:=xmurp-ua
-PKG_RELEASE:=14
+PKG_RELEASE:=15
  
 include $(INCLUDE_DIR)/package.mk
 

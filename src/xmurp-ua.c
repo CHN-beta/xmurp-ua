@@ -166,6 +166,8 @@ unsigned int hook_funcion(void *priv, struct sk_buff *skb, const struct nf_hook_
 	data_end = (char *)tcph + ntohs(iph->tot_len) - iph->ihl * 4;
 	if(data_end - data_start < 4)
 		return NF_ACCEPT;
+	if(skb->mark & 0x00000001)
+		return NF_ACCEPT;
 	
 	// 决定是否发送到下一层
 	if(catch_next_frag && iph->saddr == saddr && iph->daddr == daddr &&
