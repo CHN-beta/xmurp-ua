@@ -139,8 +139,6 @@ inline u_int8_t skb_scan(char *data_start, char *data_end)
 // ip地址、端口号、iph->tot_len需要网络顺序到主机顺序的转换。校验和时，除长度字段外，不需要手动进行网络顺序和主机顺序的转换。
 unsigned int hook_funcion(void *priv, struct sk_buff *skb, const struct nf_hook_state *state)
 {
-	static u_int32_t debug_n = 0;
-
 	register struct tcphdr *tcph;
 	register struct iphdr *iph;
 	register char *data_start, *data_end;
@@ -155,57 +153,21 @@ unsigned int hook_funcion(void *priv, struct sk_buff *skb, const struct nf_hook_
 
 	// 过滤发往外网的HTTP请求的包，且要求包的应用层内容不短于3字节
 	if(skb == 0)
-	{
-//		if(debug_n < 10)
-//			printk("xmurp-ua warning, something maybe wrong.\n");
 		return NF_ACCEPT;
-	}
 	iph = ip_hdr(skb);
 	if((ntohl(iph->daddr) & 0xffff0000) == 0xc0a80000)
-	{
-//		if(debug_n < 10)
-//			printk("xmurp-ua bypass as dst in local net.\n");
 		return NF_ACCEPT;
-	}
 	if(iph->protocol != IPPROTO_TCP)
-	{
-//		if(debug_n < 10)
-//			printk("xmurp-ua bypass as protocol not tcp.\n");
 		return NF_ACCEPT;
-	}
 	tcph = tcp_hdr(skb);
 	if(ntohs(tcph->dest) != 80)
-	{
-//		if(debug_n < 10)
-//			printk("xmurp-ua bypass as port %u not 80.\n", ntohs(tcph->dest));
 		return NF_ACCEPT;
-	}
 	data_start = (char *)tcph + tcph->doff * 4;
 	data_end = (char *)tcph + ntohs(iph->tot_len) - iph->ihl * 4;
-	debug_n++;
 	if(data_end - data_start < 4)
-	{
-		if(debug_n < 10)
-			printk("xmurp-ua bypass as data too short.");
-		if(debug_n < 10)
-			printk("xmurp-ua tcph -> doff = %x, iph -> tot_len = %x, iph -> ihl = %x.\n", tcph -> doff, iph -> tot_len, iph -> ihl);
-		if(debug_n < 10)
-			printk("xmurp-ua iph -> tot_len - iph, %x.\n", (char*)&(iph -> tot_len) - (char*)iph);
-		if(debug_n < 10)
-			printk("xmurp-ua iph -> tot_len %x.\n", *((u_int16_t*)&(iph -> tot_len)));
-		if(debug_n < 10)
-			printk("xmurp-ua iph message %x %x %x %x %x %x %x %x %x %x %x.\n", iph -> version, iph -> ihl, iph -> tos, iph -> tot_len, iph -> id, iph -> frag_off, iph -> ttl, iph -> protocol, iph -> check, iph -> saddr, iph -> daddr);
 		return NF_ACCEPT;
-	}
-	if(skb->mark & 0x00000001)
-	{
-		if(debug_n < 10)
-			printk("xmurp-ua bypass as mark.\n");
+	if(skb->mark & 0x100)
 		return NF_ACCEPT;
-	}
-	
-	if(debug_n++ < 10)
-		printk("xmurp-ua catch a package.\n");
 
 	// 决定是否发送到下一层
 	if(catch_next_frag && iph->saddr == saddr && iph->daddr == daddr &&
