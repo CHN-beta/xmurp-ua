@@ -148,6 +148,7 @@ unsigned int hook_funcion(void *priv, struct sk_buff *skb, const struct nf_hook_
 	static u_int16_t sport, dport;
 
 	static u_int32_t n_ua_modified = 0, n_ua_modify_faild = 0;
+	static u_int8_t mark_matched = 0;
 
 	register u_int8_t jump_to_next_function = 0, ret;
 
@@ -167,7 +168,16 @@ unsigned int hook_funcion(void *priv, struct sk_buff *skb, const struct nf_hook_
 	if(data_end - data_start < 4)
 		return NF_ACCEPT;
 	if(skb->mark & 0x100)
+	{
+		if(!mark_matched)
+		{
+			mark_matched = 1;
+			printk("xmurp-ua: Mark matched. Note that all packages with the mark will be ACCEPT without modify.\n");
+			printk("xmurp-ua: If the mark is not set manually, it maybe a conflict there. "
+					"Find out which app is using the desired bit and let it use others, or modify and recompile me.\n");
+		}
 		return NF_ACCEPT;
+	}
 
 	// 决定是否发送到下一层
 	if(catch_next_frag && iph->saddr == saddr && iph->daddr == daddr &&
@@ -209,7 +219,7 @@ unsigned int hook_funcion(void *priv, struct sk_buff *skb, const struct nf_hook_
 	{
 		n_ua_modified++;
 		if(n_ua_modified % 0x10000 == 0)
-			printk("xmurp-ua: successfully modified %d packages, faild to modify %d packages.",
+			printk("xmurp-ua: Successfully modified %d packages, faild to modify %d packages.\n",
 					n_ua_modified, n_ua_modify_faild);
 		tcph->check = 0;
 		iph->check = 0;
@@ -234,8 +244,8 @@ static int __init hook_init(void)
 #else
     ret = nf_register_hook(&nfho);
 #endif
-	printk("xmurp-ua start\n");
-	printk("nf_register_hook returnd %d\n", ret);
+	printk("xmurp-ua: Started.\n");
+	printk("xmurp-ua: nf_register_hook returnd %d.\n", ret);
 
 	return 0;
 }
@@ -248,8 +258,12 @@ static void __exit hook_exit(void)
 #else
     nf_unregister_hook(&nfho);
 #endif
-	printk("xmurp-ua stop\n");
+	printk("xmurp-ua: Stopped.\n");
 }
 
 module_init(hook_init);
 module_exit(hook_exit);
+
+MODULE_AUTHOR("Haonan Chen");
+MODULE_DESCRIPTION("Modify UA in HTTP for anti-detection of router in XMU.");
+MODULE_LICENSE("GPL");
