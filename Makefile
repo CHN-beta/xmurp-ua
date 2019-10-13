@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 include $(INCLUDE_DIR)/kernel.mk
  
 PKG_NAME:=xmurp-ua
-PKG_RELEASE:=27
+PKG_RELEASE:=28
  
 include $(INCLUDE_DIR)/package.mk
 
@@ -19,7 +19,7 @@ define KernelPackage/xmurp-ua
 	SUBMENU:=Other modules
 	TITLE:=xmurp-ua
 	FILES:=$(PKG_BUILD_DIR)/xmurp-ua.ko
-	AUTOLOAD:=$(call AutoLoad,99,xmurp-ua)
+#	AUTOLOAD:=$(call AutoLoad,99,xmurp-ua)
 	KCONFIG:=
 endef
 

@@ -7,7 +7,6 @@
 #include <linux/ip.h>
 #include <linux/tcp.h>
 #include <linux/netdevice.h>
-#include <linux/random.h>
 
 static struct nf_hook_ops nfho;
 
