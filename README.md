@@ -24,3 +24,30 @@ iptables -t filter -I FORWARD -p tcp ! --dport 80 -m conntrack --ctstate RELATED
 ```
 
 两句的区别的话，大概是前者用硬件，后者用软件。具体的东西我也不熟悉。
+
+---
+
+有小伙子反映说 15.05.1 编译不了。其实是可以的。方法如下：
+
+* 删除或者注释掉 `include/package.mk` 的下面几行：
+
+  ```makefile
+  ifdef DESCRIPTION
+  $$(error DESCRIPTION:= is obsolete, use Package/PKG_NAME/description)
+  endif
+  ```
+
+* 然后使用下面的命令编译（不要照搬哦，根据自己情况修改）：
+
+  ```bash
+  ln -s ../feeds/base/package/utils package/utils
+  make defconfig
+  git clone git@github.com:CHN-beta/xmurp-ua.git package/xmurp-ua
+  make package/xmurp-ua/compile V=sc ARCH=mips
+  # 这里会报错，没关系
+  cp -r package/xmurp-ua build_dir/target-mips_34kc_uClibc-0.9.33.2/linux-ar71xx_generic
+  make package/xmurp-ua/compile V=sc ARCH=mips
+  ```
+
+  
+
