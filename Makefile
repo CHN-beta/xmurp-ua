@@ -13,7 +13,7 @@ EXTRA_CFLAGS:= \
 MAKE_OPTS:=$(KERNEL_MAKE_FLAGS) \
 	SUBDIRS="$(PKG_BUILD_DIR)" \
 	EXTRA_CFLAGS="$(EXTRA_CFLAGS)" \
-	CONFIG_xmurp-ua=m
+	CONFIG_XMURP_UA=m
 
 define KernelPackage/xmurp-ua
 	SUBMENU:=Other modules

@@ -1,1 +1,1 @@
-obj-${CONFIG_xmurp-ua}	+= xmurp-ua.o
+obj-${CONFIG_XMURP_UA}	+= xmurp-ua.o
