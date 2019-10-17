@@ -37,5 +37,69 @@ make defconfig
 make package/xmurp-ua/compile V=sc ARCH=mips
 ```
 
-  
+---
+
+还有人在 LEDE 17.05.5 上编译失败了。所以说，能用新的就用新的，旧的总是会出麻烦的问题。不要听信什么旧的稳定，我不信。
+
+我把编译方法和解决的过程放到这里，供参考。
+
+* 首先当然是正常编译：
+
+  ```bash
+  git clone git@github.com:CHN-beta/xmurp-ua.git package/xmurp-ua
+  make defconfig
+  make package/xmurp-ua/compile V=sc ARCH=mips CROSS_COMPILE=/home/chn/Desktop/lede-sdk-17.01.5-ar71xx-generic_gcc-5.4.0_musl-1.1.16.Linux-x86_64/staging_dir/toolchain-mips_24kc_gcc-5.4.0_musl-1.1.16/bin/mips-openwrt-linux-musl-
+  ```
+
+* 这时会看到这样的错误：
+
+  ```bash
+  .find.bin: loadlocale.c:129: _nl_intern_locale_data: Assertion `cnt < (sizeof (_nl_value_type_LC_TIME) / sizeof (_nl_value_type_LC_TIME[0]))' failed.
+  .xargs.bin: loadlocale.c:129: _nl_intern_locale_data: Assertion `cnt < (sizeof (_nl_value_type_LC_TIME) / sizeof (_nl_value_type_LC_TIME[0]))' failed.
+  Aborted (core dumped)
+  Aborted (core dumped)
+    MODPOST 0 modules
+  .find.bin: loadlocale.c:129: _nl_intern_locale_data: Assertion `cnt < (sizeof (_nl_value_type_LC_TIME) / sizeof (_nl_value_type_LC_TIME[0]))' failed.
+  .xargs.bin: loadlocale.c:129: _nl_intern_locale_data: Assertion `cnt < (sizeof (_nl_value_type_LC_TIME) / sizeof (_nl_value_type_LC_TIME[0]))' failed.
+  .sed.bin: loadlocale.c:129: _nl_intern_locale_data: Assertion `cnt < (sizeof (_nl_value_type_LC_TIME) / sizeof (_nl_value_type_LC_TIME[0]))' failed.
+  Aborted (core dumped)
+  Aborted (core dumped)
+  Aborted (core dumped)
+  ```
+
+  以 `.xargs.bin` 为例子。
+
+  ```bash
+  find | grep .xargs.bin
+  ```
+
+  得到
+
+  ```bash
+  ./staging_dir/host/bin/.xargs.bin
+  ```
+
+  看看这个目录里的内容
+
+  ```bash
+  ls staging_dir/host/bin
+  ```
+
+  所以，这个目录里准备的就是一些常用的命令，或许是因为担心宿主机上缺少某些或者用法不一样导致编译错误。初心是好的，但这毕竟是几年前的玩意儿，当时准备的 `find` 等工具放到现在的电脑上闪退了（如果是老电脑的话，说不定还能用）。
+
+* 解决办法就是，用自己电脑上的工具来替换这些老旧的东西。
+
+  ```bash
+  rm -r staging_dir/host/bin
+  ln -s /usr/bin staging_dir/host/
+  ```
+
+* 然后把原来编译一半的删掉，重新编译。
+
+  ```bash
+  rm -r build_dir/target-mips_24kc_musl-1.1.16/linux-ar71xx_generic/xmurp-ua
+  make package/xmurp-ua/compile V=sc ARCH=mips CROSS_COMPILE=/home/chn/Desktop/lede-sdk-17.01.5-ar71xx-generic_gcc-5.4.0_musl-1.1.16.Linux-x86_64/staging_dir/toolchain-mips_24kc_gcc-5.4.0_musl-1.1.16/bin/mips-openwrt-linux-musl-
+  ```
+
+  搞定。
 
