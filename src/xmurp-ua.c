@@ -147,7 +147,8 @@ unsigned int hook_funcion(void *priv, struct sk_buff *skb, const struct nf_hook_
 	static u_int32_t saddr, daddr, seq;
 	static u_int16_t sport, dport;
 
-	static u_int32_t n_ua_modified = 0, n_ua_modify_faild = 0;
+	static u_int32_t n_ua_modified = 0, n_ua_modify_faild = 0, n_not_modifible = 0, n_mark_matched = 0;
+	static u_int32_t n_ua_modified_lastprint = 1, n_not_modifible_lastprint = 1;
 	static u_int8_t mark_matched = 0;
 
 	register u_int8_t jump_to_next_function = 0, ret;
@@ -176,8 +177,31 @@ unsigned int hook_funcion(void *priv, struct sk_buff *skb, const struct nf_hook_
 			printk("xmurp-ua: If the mark is not set manually, it maybe a conflict there. "
 					"Find out which app is using the desired bit and let it use others, or modify and recompile me.\n");
 		}
+		n_mark_matched++;
 		return NF_ACCEPT;
 	}
+
+	// 确保 skb 可以被修改，或者不可以被修改的话把它变得可修改
+	if(skb_ensure_writable(skb, (char*)data_end - (char*)skb -> data))
+	{
+		n_not_modifible++;
+		if(n_not_modifible == 2 * n_not_modifible_lastprint)
+		{
+			printk("xmurp-ua: There are %u packages not modifiable.\n", n_ua_modified);
+			n_ua_modified_lastprint *= 2;
+		}
+		n_ua_modify_faild++;
+		catch_next_frag = 0;
+		return NF_ACCEPT;
+	}
+	else
+	{
+		iph = ip_hdr(skb);
+		tcph = tcp_hdr(skb);
+		data_start = (char *)tcph + tcph->doff * 4;
+		data_end = (char *)tcph + ntohs(iph->tot_len) - iph->ihl * 4;
+	}
+	
 
 	// 决定是否发送到下一层
 	if(catch_next_frag && iph->saddr == saddr && iph->daddr == daddr &&
@@ -218,9 +242,12 @@ unsigned int hook_funcion(void *priv, struct sk_buff *skb, const struct nf_hook_
 	if(ret & ua_modified)
 	{
 		n_ua_modified++;
-		if(n_ua_modified % 0x10000 == 0)
-			printk("xmurp-ua: Successfully modified %d packages, faild to modify %d packages.\n",
-					n_ua_modified, n_ua_modify_faild);
+		if(n_ua_modified == n_ua_modified_lastprint * 2)
+		{
+			printk("xmurp-ua: Successfully modified %u packages, faild to modify %u packages, %u packages matched mark, %u packages not modifiable.\n",
+					n_ua_modified, n_ua_modify_faild, n_mark_matched, n_not_modifible);
+			n_ua_modified_lastprint *= 2;
+		}
 		tcph->check = 0;
 		iph->check = 0;
 		skb->csum = skb_checksum(skb, iph->ihl * 4, ntohs(iph->tot_len) - iph->ihl * 4, 0);
