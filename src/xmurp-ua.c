@@ -148,7 +148,7 @@ unsigned int hook_funcion(void *priv, struct sk_buff *skb, const struct nf_hook_
 	static u_int16_t sport, dport;
 
 	static u_int32_t n_ua_modified = 0, n_ua_modify_faild = 0, n_not_modifible = 0, n_mark_matched = 0;
-	static u_int32_t n_ua_modified_lastprint = 1, n_not_modifible_lastprint = 1;
+	static u_int32_t n_ua_modified_lastprint = 1;
 	static u_int8_t mark_matched = 0;
 
 	register u_int8_t jump_to_next_function = 0, ret;
@@ -173,7 +173,7 @@ unsigned int hook_funcion(void *priv, struct sk_buff *skb, const struct nf_hook_
 		if(!mark_matched)
 		{
 			mark_matched = 1;
-			printk("xmurp-ua: Mark matched. Note that all packages with the mark will be ACCEPT without modify.\n");
+			printk("xmurp-ua: Mark matched. Note that all packages with the mark will be ACCEPT without modification.\n");
 			printk("xmurp-ua: If the mark is not set manually, it maybe a conflict there. "
 					"Find out which app is using the desired bit and let it use others, or modify and recompile me.\n");
 		}
@@ -203,11 +203,6 @@ unsigned int hook_funcion(void *priv, struct sk_buff *skb, const struct nf_hook_
 	if(skb_ensure_writable(skb, (char*)data_end - (char*)skb -> data))
 	{
 		n_not_modifible++;
-		if(n_not_modifible == 2 * n_not_modifible_lastprint)
-		{
-			printk("xmurp-ua: There are %u packages not modifiable.\n", n_ua_modified);
-			n_ua_modified_lastprint *= 2;
-		}
 		n_ua_modify_faild++;
 		catch_next_frag = 0;
 		return NF_ACCEPT;
