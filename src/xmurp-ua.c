@@ -181,6 +181,24 @@ unsigned int hook_funcion(void *priv, struct sk_buff *skb, const struct nf_hook_
 		return NF_ACCEPT;
 	}
 
+	// 决定是否发送到下一层
+	if(catch_next_frag && iph->saddr == saddr && iph->daddr == daddr &&
+			tcph->seq == seq && tcph->source == sport && tcph->dest == dport)
+		jump_to_next_function = 1;
+	else if(data_end - data_start > 3)
+		if(memcmp(data_start, "GET", 3) == 0 || memcmp(data_start, "POST", 4) == 0)
+		{
+			if(catch_next_frag)
+			{
+				n_ua_modify_faild++;
+				char_scan(0);
+				catch_next_frag = 0;
+			}
+			jump_to_next_function = 1;
+		}
+	if(!jump_to_next_function)
+		return NF_ACCEPT;
+
 	// 确保 skb 可以被修改，或者不可以被修改的话把它变得可修改
 	if(skb_ensure_writable(skb, (char*)data_end - (char*)skb -> data))
 	{
@@ -201,25 +219,6 @@ unsigned int hook_funcion(void *priv, struct sk_buff *skb, const struct nf_hook_
 		data_start = (char *)tcph + tcph->doff * 4;
 		data_end = (char *)tcph + ntohs(iph->tot_len) - iph->ihl * 4;
 	}
-	
-
-	// 决定是否发送到下一层
-	if(catch_next_frag && iph->saddr == saddr && iph->daddr == daddr &&
-			tcph->seq == seq && tcph->source == sport && tcph->dest == dport)
-		jump_to_next_function = 1;
-	else if(data_end - data_start > 3)
-		if(memcmp(data_start, "GET", 3) == 0 || memcmp(data_start, "POST", 4) == 0)
-		{
-			if(catch_next_frag)
-			{
-				n_ua_modify_faild++;
-				char_scan(0);
-				catch_next_frag = 0;
-			}
-			jump_to_next_function = 1;
-		}
-	if(!jump_to_next_function)
-		return NF_ACCEPT;
 
 	// 发送到下一层，并回收数据
 	ret = skb_scan(data_start, data_end);
