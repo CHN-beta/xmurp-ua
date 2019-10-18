@@ -38,7 +38,7 @@
   cd ~ && tar xvf openwrt-sdk*.tar.xz && cd openwrt-sdk*
   ```
 
-  (如果使用 WSL，可以将 SDK 放到 C 盘根目录，然后使用命令 `cd ~ && cp /mnt/c/*.tar.xz .` 将它复制到 WSL 中。）
+  （如果使用 WSL，可以将 SDK 放到 C 盘根目录，然后使用命令 `cd ~ && cp /mnt/c/*.tar.xz .` 将它复制到 WSL 中。）
 
 * 下载 `xmurp-ua` 的源代码，并编译。
 
