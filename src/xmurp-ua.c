@@ -149,7 +149,7 @@ unsigned int hook_funcion(void *priv, struct sk_buff *skb, const struct nf_hook_
 
 	static u_int32_t n_ua_modified = 0, n_ua_modify_faild = 0, n_not_modifible = 0, n_mark_matched = 0;
 	static u_int32_t n_ua_modified_lastprint = 1;
-	static u_int8_t mark_matched = 0;
+	static u_int8_t mark_matched = 0, not_writable = 0;
 
 	register u_int8_t jump_to_next_function = 0, ret;
 
@@ -200,8 +200,13 @@ unsigned int hook_funcion(void *priv, struct sk_buff *skb, const struct nf_hook_
 		return NF_ACCEPT;
 
 	// 确保 skb 可以被修改，或者不可以被修改的话把它变得可修改
-	if(skb_ensure_writable(skb, (char*)data_end - (char*)skb -> data))
+	if(skb_ensure_writable(skb, (char*)data_end - (char*)skb -> data) || skb == 0 || skb -> data == 0)
 	{
+		if(!not_writable)
+		{
+			not_writable = 1;
+			printk("xmurp-ua: There is a package not wirtable. Please make sure the router has enough memory.\n");
+		}
 		n_not_modifible++;
 		n_ua_modify_faild++;
 		catch_next_frag = 0;

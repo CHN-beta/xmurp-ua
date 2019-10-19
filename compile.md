@@ -60,10 +60,10 @@ make package/xmurp-ua/compile V=sc ARCH=mips CROSS_COMPILE=/home/chn/Desktop/led
 
 #### 使用旧版 Makefile
 
-对于 Openwrt 15.05（Chaos Calmer），Makefile 的格式与最新版本不同。使用 `Makefile.cc` 代替 `Makefile` 再编译。
+对于 Openwrt 15.05（Chaos Calmer），Makefile 的格式与最新版本不同。使用 `Chaos_Calmer.Makefile` 代替 `Makefile` 再编译。
 
 ```bash
-cp package/xmurp-ua/Makefile.cc package/xmurp-ua/Makefile
+cp package/xmurp-ua/Chaos_Calmer.Makefile package/xmurp-ua/Makefile
 ```
 
 #### 失效的 host 命令
