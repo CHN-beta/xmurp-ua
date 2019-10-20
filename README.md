@@ -1,18 +1,64 @@
-喵喵喵，这里是一个修改 UA 的小模块。细致地讲，就是用在 OpenWrt 上修改发给外网 80 端口 GET 和 POST 请求的 UA 字段 为`XMURP/1.0`再加很多个空格的内核模块，用来防止学校检测到使用代理（接路由器）。具体情况，百度“厦大路由”然后看我的简书文章就好了。在 WNDR4300 OpenWrt 18.06.1（内核 4.9.120）测试似乎没问题。前两天还适配了一下 4.14的内核。
+### 技术细节
 
-如果有一些包不希望被改 UA，只要在防火墙规则里将 MARK 的第九位设置为 1 就可以了。例如：
+#### 抓取数据包
 
-```
-iptables -t mangle -A PREROUTING -p tcp -m tcp --dport 80 -m mac --mac-source f8:94:c2:85:e8:14 -j MARK --set-xmark 0x100/0x100
-```
+模块根据握手时的第一个包（SYN，以后简称首包）来确定是否追踪这个 TCP 流以及修改的策略（保留包含 `"Windows NT"` 的 UA，还是替换掉所有的 UA）。当首包 mark 的 `0x10` 位被置为 1 时，追踪这条流。当首包 mark 的 `0x20` 位被置为 1 时，将保留包含 `"Windows NT"` 的 UA，否则将替换所有的 UA。
 
-在之前的版本中，使用的是 `0x1/0x1` 位，但是与 luci-app-shadowsocks 冲突，所以改到了 `0x100/0x100`。
+模块通过三次握手过程中的第二个包（服务端发来的 SYN ACK）来确定连接已经被建立。为了使得这个数据包可以被模块捕获，应当将它的 `0x10` 置为 1。
 
-另外，不要在 luci 中启用 flow offloading（流量分载，即 nat 加速），否则这个模块会失效。可以通过下面的命令（二选一，不需要两句都写）来对不需要这个模块的流量启用。
+在确定追踪这条流的前提下，模块根据数据包的 mark 来确定是否抓取这个数据包。仅当 `0x10` 位被置为 1 时，模块会抓取这个数据包，否则不会抓取之。除了首包以外，`0x20` 位不起作用。如果一个数据包 mark 的 `0x10` 位被置为 1，但是所属的流没有被跟踪，或者这个包是服务端发来的（并且不是三次握手时的 SYN ACK 包），则会发出警告并丢弃（返回 `NF_DROP`）这个数据包。应该避免这样的情况出现。
 
-```
-iptables -t filter -I FORWARD -p tcp ! --dport 80 -m conntrack --ctstate RELATED,ESTABLISHED -j FLOWOFFLOAD --hw
-iptables -t filter -I FORWARD -p tcp ! --dport 80 -m conntrack --ctstate RELATED,ESTABLISHED -j FLOWOFFLOAD
-```
+总之，模块通过 `0x10` 确定一个数据包是否被捕获，通过首包（SYN 且无 AKC）的 `0x20` 确定修改的策略，其它数据包的 `0x20` 被忽略。如果要追踪一条流，应该保证所有客户端到服务端的数据包的 `0x10` 位被置为 1、首包的 `0x20` 被置为合适的值、第二个包的 `0x10` 被置为 1、其它 IP 协议数据包的 `0x10` 被置为 0。模块中不会再作除上述内容以外的过滤，甚至不会判断目标端口是否为 `80`。在写防火墙规则时需要特殊考虑本地地址作为服务端的情况，以及（通常情况下）仅仅标记目标 `80` 端口的数据。
 
-两句的区别的话，大概是前者用硬件，后者用软件。具体的东西我也不熟悉。
+#### 流追踪的过程
+
+我们首先假定不会发生乱序（TCP disorder）和丢包的情况，并假定追踪的流是合法的 HTTP 1.x 请求。捕获到首包之后，会开始追踪这条流并将状态置为 `rpstm_connecting`，然后返回 `NF_ACCEPT`。当捕获到接下来的 `ACK SYN` 之后，流的状态被置为 `rpstm_established_sniffing` 并返回 `NF_ACCEPT`。从此开始，每收到一个数据包，都会截留（返回 `NF_STOLEN`，包括包含 HTTP 头的最后一个数据包）直到捕获到整个 HTTP 头部（在应用层中读到 `\r\n\r\n`）。当确认捕获到整个 HTTP 头部后，会根据情况检查并修改 UA，然后将截获的数据包发出，将状态置为 `rpstm_established_waiting`（除非最后一个包就带有 PUSH）后返回 `NF_STOLEN`。之后不含 PUSH 的数据包都将直接返回 `NF_ACCEPT`。当捕获到包含 PUSH 的数据包时，会将流的状态置为 `established_sniffing`，返回 `NF_ACCEPT`。以此循环，直到读到 `RST` 或 `FIN`，这时会放弃追踪这条流，将截留的数据包发出（如果有的话），返回 `NF_ACCEPT`。
+
+为了处理乱序和丢包的情况，模块会记录建立连接时的序列号，并在每次返回 `NF_ACCEPT` 时更新这个序列号。对于每个收到的数据包，如果序列号不符合期待，则进行判断：若在期待的序列号之前 `0x80000000` 的范围内，视作重传，直接返回 `NF_ACCEPT`；否则，说明发生了乱序，将这个包放到缓存区延迟处理，返回 `NF_STOLEN`。每处理完成一个数据包后，确认缓存区是否有序列号符合期待的数据包并处理。因为实际情况下
+
+捕获过程中，如果发现 HTTP 头的长度超过 64 个数据包，或者在收集到完整的头部之前就收到 PSH、FIN 或 RST，则认为不是有效的 HTTP 1.x 请求，会发出警告，将截获的数据包发出，返回 `NF_ACCEPT`。如果是 PSH，会继续尝试处理；如果是 FIN 或 RST，则会不再跟踪这条流。
+
+模块不会自动释放过期的流。
+
+#### 假装面向对象
+
+仿照 MBROLA 的设计，为了让代码容易整理，用面向对象的思路。每一个头文件即是一个类（本质上是一个结构体，和很多个以这个结构体的指针为第一个参数的函数）。`xxx` 类的函数都以 `xxx_` 开头。`xxx_new`、`xxx_del` 分别是 `xxx` 类的构造函数和析构函数。除了 `sk_buff` 中的数据，变量都以本机的字节序存储。
+
+##### `rpStream` 类
+
+存储一个流的信息。
+
+成员变量：
+
+* `u_int8_t enum {...} status`：流的状态。
+* `u_int32_t id[3]`：这 16 个字节按顺序存储源地址、目标地址、源端口、目标端口。
+* `struct sk_buff* buff`：截取的数据包。保证已经 `skb_ensure_writable`。
+* `struct sk_buff* buff_prev`：由于乱序而需要暂缓处理的数据包。保证已经 `skb_ensure_writable`。
+* `u_int32_t seq`：存储下一个期待收到的包的序列号。
+* `u_int8_t scan_matched`：在 `rpstm_established_sniffing` 状态下，指示直到 `buff` 中最后一个包的应用层末尾，匹配 `"\r\n\r\n"` 的字节数。一旦匹配到，则会短暂地被用来记录匹配 `"User-Agent: "` 等其它字符串的进度。当它没有意义时，总是被置为 0。
+* `u_int8_t windows_preserve`：当 UA 中包含 `"Windows NT"` 时，是否保留不变。实际上，如果不需要保留，根本就不需要去确认是否包含 `"Windows NT"`。
+* `struct rpStream* next`：单向链表用。
+
+成员函数：
+
+* `struct rpStream* rpStream_new()`：构造函数。
+* `void rpStream_del(struct rpStream*)`：析构函数。
+* `u_int8_t rpStream_check_contain(struct rpStream*, struct sk_buff*)`：检查一个数据包是否属于这个流（`id` 是否吻合）。对于 `SYN ACK`，检查时会对调源和目的。
+* `u_int8_t rpStream_check_retransmit(struct rpStream*, struct sk_buff*)`：检查一个数据包是否是重传的数据包。
+* `void rpStream_append(struct rpStream*, struct sk_buff*)`：将一个已经确认属于这个流的数据包保存起来，可能放到 `buff` 也可能放到 `buff_prev`。会同时更新 `scan_matched`。
+* `int8_t __rpStream_check_sequence(struct rpStream*, struct sk_buff*)`：视为私有变量。检查一个数据包是重传（返回 -1）、乱序（返回 1）还是正常的（返回 0）。
+* 
+
+#### 其它细节
+
+* 为什么通过第二个包而不是第三个包来判定连接已经建立？
+
+  因为我查了查，原则上第三个包是可以携带应用层数据的。考虑到这一点，如果用第三个判定的话，就会让步骤变得比较混乱。
+
+* TCP 不是不区分服务端和客户端吗？
+
+  但是 HTTP 区分啊。
+
+* 为啥文档要写这么详细？
+
+  之前在公司实习的时候，要求我写这样详细。后来我觉得这样挺好的。实际上我是先写文档后写代码的。
