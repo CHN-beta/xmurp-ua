@@ -9,6 +9,10 @@
 #include <linux/netdevice.h>
 #include <linux/random.h>
 
+MODULE_AUTHOR("Haonan Chen");
+MODULE_DESCRIPTION("Modify UA in HTTP for anti-detection of router in XMU.");
+MODULE_LICENSE("GPL");
+
 static struct nf_hook_ops nfho;
 
 enum char_scan_enum
@@ -270,7 +274,7 @@ static int __init hook_init(void)
 #else
     ret = nf_register_hook(&nfho);
 #endif
-	printk("xmurp-ua: Started.\n");
+	printk("xmurp-ua: Started, version %d.\n", VERSION);
 	printk("xmurp-ua: nf_register_hook returnd %d.\n", ret);
 
 	return 0;
@@ -289,7 +293,3 @@ static void __exit hook_exit(void)
 
 module_init(hook_init);
 module_exit(hook_exit);
-
-MODULE_AUTHOR("Haonan Chen");
-MODULE_DESCRIPTION("Modify UA in HTTP for anti-detection of router in XMU.");
-MODULE_LICENSE("GPL");

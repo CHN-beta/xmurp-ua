@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 include $(INCLUDE_DIR)/kernel.mk
 
 PKG_NAME:=xmurp-ua
-PKG_RELEASE:=31
+PKG_RELEASE:=32
 
 include $(INCLUDE_DIR)/package.mk
 
@@ -23,6 +23,7 @@ EXTRA_KCONFIG:= \
 EXTRA_CFLAGS:= \
 	$(patsubst CONFIG_%, -DCONFIG_%=1, $(patsubst %=m,%,$(filter %=m,$(EXTRA_KCONFIG)))) \
 	$(patsubst CONFIG_%, -DCONFIG_%=1, $(patsubst %=y,%,$(filter %=y,$(EXTRA_KCONFIG)))) \
+	-DVERSION=$(PKG_RELEASE)
 
 MAKE_OPTS:= \
 	ARCH="$(LINUX_KARCH)" \
