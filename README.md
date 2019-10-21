@@ -17,8 +17,8 @@ iptables -t mangle -A PREROUTING -p tcp -m tcp --dport 80 -m mac --mac-source f8
 另外，不要在 luci 中启用 flow offloading（流量分载，即 nat 加速），否则这个模块会失效。可以通过下面的命令（二选一，不需要两句都写）来对不需要这个模块的流量启用。
 
 ```
-iptables -t filter -I FORWARD -p tcp ! --dport 80 -m conntrack --ctstate RELATED,ESTABLISHED -j FLOWOFFLOAD --hw
-iptables -t filter -I FORWARD -p tcp ! --dport 80 -m conntrack --ctstate RELATED,ESTABLISHED -j FLOWOFFLOAD
+iptables -t filter -I FORWARD -p tcp ! --dport 80 ! --sport 80 -m conntrack --ctstate RELATED,ESTABLISHED -j FLOWOFFLOAD --hw
+iptables -t filter -I FORWARD -p tcp ! --dport 80 ! --sport 80 -m conntrack --ctstate RELATED,ESTABLISHED -j FLOWOFFLOAD
 ```
 
 两句的区别的话，大概是前者用硬件，后者用软件。具体的东西我也不熟悉。
