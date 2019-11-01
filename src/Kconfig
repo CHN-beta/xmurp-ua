@@ -1,2 +1,2 @@
-config xmurp-ua
-	tristate "xmurp-ua"
+config rkp-ua
+	tristate "rkp-ua"
