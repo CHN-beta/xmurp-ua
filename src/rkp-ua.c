@@ -32,6 +32,9 @@ static int __init hook_init(void)
 	rkpm = rkpManager_new();
 	last_flush = now();
 
+	memcpy(str_ua_rkp, "RKP/", 4);
+	memcpy(str_ua_rkp, VERSION, 3);
+
 	nfho.hook = hook_funcion;
 	nfho.pf = NFPROTO_IPV4;
 	nfho.hooknum = NF_INET_POST_ROUTING;

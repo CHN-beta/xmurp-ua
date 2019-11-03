@@ -17,7 +17,7 @@
 const unsigned char* str_ua_start = "User-Agent: ";
 const unsigned char* str_ua_end = "\r\n";
 const unsigned char* str_head_end = "\r\n\r\n";
-const unsigned char* str_ua_rkp = "RKP/" VERSION;
+const unsigned char str_ua_rkp[7];
 
 time_t now()
 {

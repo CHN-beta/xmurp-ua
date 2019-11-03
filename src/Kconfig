@@ -1,2 +1,2 @@
-config rkp-ua
+config RKP_UA
 	tristate "rkp-ua"

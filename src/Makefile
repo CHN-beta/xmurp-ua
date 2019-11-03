@@ -1,1 +1,1 @@
-obj-${CONFIG_rkp-ua}	+= rkp-ua.o
+obj-${CONFIG_RKP_UA}	+= rkp-ua.o
