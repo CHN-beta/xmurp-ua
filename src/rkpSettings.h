@@ -1,6 +1,6 @@
 #include "common.h"
 
-static u_int8_t mode_advanced = 0;
+static bool mode_advanced = false;
 module_param(mode_advanced, bool, 0);
 
 static char* str_preserve[128];
@@ -16,48 +16,48 @@ module_param(mark_first, uint, 0);
 static u_int32_t mark_preserve = 0x800;
 module_param(mark_preserve, uint, 0);
 
-static unsigned time_keepalive = 1200
+static unsigned time_keepalive = 1200;
 module_param(time_keepalive, uint, 0);
 
-u_int8_t rkpSettings_capture(struct sk_buff*);
-u_int8_t rkpSettings_request(struct sk_buff*);
-u_int8_t rkpSettings_first(struct sk_buff*);
-u_int8_t rkpSettings_preserve(struct sk_buff*);
+bool rkpSettings_capture(const struct sk_buff*);
+bool rkpSettings_request(const struct sk_buff*);
+bool rkpSettings_first(const struct sk_buff*);
+bool rkpSettings_preserve(const struct sk_buff*);
 
-u_int8_t rkpSettings_capture(struct sk_buff* skb)
+bool rkpSettings_capture(const struct sk_buff* skb)
 {
     if(mode_advanced)
-        return skb -> mark & mark_capture == mark_capture;
+        return (skb -> mark & mark_capture) == mark_capture;
     else
     {
         if(ip_hdr(skb) -> protocol != IPPROTO_TCP)
-            return 0;
-        else if(tcp_hdr(skb) -> dport == 80)
-            return 1;
-        else if(tcp_hdr(skb) -> sport == 80 && tcp_hdr(skb) -> ack)
-            return 1;
+            return false;
+        else if(tcp_hdr(skb) -> dest == 80)
+            return true;
+        else if(tcp_hdr(skb) -> source == 80 && tcp_hdr(skb) -> ack)
+            return true;
         else
-            return 0;
+            return false;
     }
 }
-u_int8_t rkpSettings_request(struct sk_buff* skb)
+bool rkpSettings_request(const struct sk_buff* skb)
 {
     if(mode_advanced)
-        return skb -> mark & mark_request == mark_request;
+        return (skb -> mark & mark_request) == mark_request;
     else
         return ip_hdr(skb) -> daddr == 80;
 }
-u_int8_t rkpSettings_first(struct sk_buff* skb)
+bool rkpSettings_first(const struct sk_buff* skb)
 {
     if(mode_advanced)
-        return skb -> mark & mark_first == mark_first;
+        return (skb -> mark & mark_first) == mark_first;
     else
         return tcp_hdr(skb) -> syn && !tcp_hdr(skb) -> ack;
 }
-u_int8_t rkpSettings_preserve(struct sk_buff* skb)
+bool rkpSettings_preserve(const struct sk_buff* skb)
 {
     if(mode_advanced)
-        return skb -> mark & mark_preserve == mark_preserve;
+        return (skb -> mark & mark_preserve) == mark_preserve;
     else
-        return 1;
+        return true;
 }

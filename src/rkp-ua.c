@@ -47,11 +47,12 @@ static int __init hook_init(void)
 #endif
 
 	printk("rkp-ua: Started, version %s\n", VERSION);
-	printk("rkp-ua: mode_advanced=%c, mode_winPreserve=%c, mark_capture=0x%x, "
-			"mark_request=0x%x, mark_first=0x%x, mark_winPreserve=0x%x.\n",
-			'n' + mode_advanced * ('y' - 'n'), 'n' + mode_winPreserve * ('y' - 'n'), 
-			mark_capture, mark_request, mark_first, mark_winPreserve);
 	printk("rkp-ua: nf_register_hook returnd %d.\n", ret);
+	printk("rkp-ua: mode_advanced=%c, mark_capture=0x%x, mark_request=0x%x, mark_first=0x%x, mark_preserve=0x%x.\n",
+			'n' + mode_advanced * ('y' - 'n'), mark_capture, mark_request, mark_first, mark_preserve);
+	printk("rkp-ua: str_preserve:\n");
+	for(ret = 0; ret < n_str_preserve; ret++)
+		printk("\t%s\n", str_preserve[ret]);
 
 	return 0;
 }

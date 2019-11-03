@@ -5,13 +5,13 @@ struct rkpManager
     struct rkpStream** data;        // 按照首包的两端口之和的低 8 位放置
 };
 
-struct rkpManager* rkpManager_new();                    // 构造函数
+struct rkpManager* rkpManager_new(void);                    // 构造函数
 void rkpManager_del(struct rkpManager*);                // 析构函数
 
 u_int8_t rkpManager_execute(struct rkpManager*, struct sk_buff*);           // 处理一个数据包。返回值为 rkpStream_execute 的返回值。
 void rkpManager_refresh(struct rkpManager*);                              // 清理过时的流
 
-struct rkpManager* rkpManager_new()
+struct rkpManager* rkpManager_new(void)
 {
     struct rkpManager* rkpm = kmalloc(sizeof(struct rkpManager) + sizeof(struct rkpStream*) * 256, GFP_KERNEL);
     if(rkpm == 0)
@@ -41,12 +41,10 @@ void rkpManager_del(struct rkpManager* rkpm)
 
 u_int8_t rkpManager_execute(struct rkpManager* rkpm, struct sk_buff* skb)
 {
-
-
     if(rkpSettings_first(skb))
     // 新增加一个流或覆盖已经有的流
     {
-        u_int8_t id = (ntohs(tcp_hdr(skb) -> sport) + ntohs(tcp_hdr(skb) -> dport)) & 0xFF;
+        u_int8_t id = (ntohs(tcp_hdr(skb) -> source) + ntohs(tcp_hdr(skb) -> dest)) & 0xFF;
         struct rkpStream* rkps_new = rkpStream_new(skb);
         struct rkpStream *rkps = rkpm -> data[id];
         if(rkps_new == 0)
@@ -80,11 +78,14 @@ u_int8_t rkpManager_execute(struct rkpManager* rkpm, struct sk_buff* skb)
             rkps_new -> next = rkpm -> data[id];
             rkpm -> data[id] = rkps_new;
         }
+
+        // 执行
+        return rkpStream_execute(rkps_new, skb);
     }
     else
     // 使用已经有的流
     {
-        u_int8_t id = (ntohs(tcp_hdr(skb) -> sport) + ntohs(tcp_hdr(skb) -> dport)) & 0xFF;
+        u_int8_t id = (ntohs(tcp_hdr(skb) -> source) + ntohs(tcp_hdr(skb) -> dest)) & 0xFF;
         struct rkpStream *rkps = rkpm -> data[id];
         while(rkps != 0)
             if(rkpStream_belong(rkps, skb))

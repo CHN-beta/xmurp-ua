@@ -14,12 +14,12 @@
 #include <asm/limits.h>
 #include <linux/time.h>
 
-const unsigned char* str_ua_start = "User-Agent: ";
-const unsigned char* str_ua_end = "\r\n";
-const unsigned char* str_head_end = "\r\n\r\n";
-const unsigned char str_ua_rkp[7];
+const static unsigned char* str_ua_begin = "User-Agent: ";
+const static unsigned char* str_ua_end = "\r\n";
+const static unsigned char* str_head_end = "\r\n\r\n";
+static unsigned char str_ua_rkp[7];
 
-time_t now()
+time_t now(void)
 {
     struct timespec* ts;
     getnstimeofday(ts);
