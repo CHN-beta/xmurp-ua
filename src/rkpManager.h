@@ -92,11 +92,8 @@ u_int8_t rkpManager_execute(struct rkpManager* rkpm, struct sk_buff* skb)
                 return rkpStream_execute(rkps, skb);
             else
                 rkps = rkps -> next;
-        if(rkps == 0)
-        {
-            printk("rkp-ua::rkpStream::rkpStream_execute: Target stream not found.\n");
-            return NF_DROP;
-        }
+        printk("rkp-ua::rkpStream::rkpStream_execute: Target stream not found.\n");
+        return NF_DROP;
     }
 }
 

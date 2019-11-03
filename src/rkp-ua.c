@@ -6,14 +6,25 @@ static time_t last_flush;
 
 unsigned int hook_funcion(void *priv, struct sk_buff *skb, const struct nf_hook_state *state)
 {
-	u_int8_t rtn;
-	static u_int8_t crashed = 0;
+	unsigned rtn;
+	static bool crashed = 0;
+
+	static unsigned n_skb_captured = 0, n_skb_captured_lastPrint = 1;
 
 	if(crashed)
 		return NF_ACCEPT;
 	if(!rkpSettings_capture(skb))
 		return NF_ACCEPT;
+
 	rtn = rkpManager_execute(rkpm, skb);
+
+	n_skb_captured++;
+	if(n_skb_captured == n_skb_captured_lastPrint * 2)
+	{
+		printk("rkp-ua: Captured %d packages.\n", n_skb_captured);
+		n_skb_captured_lastPrint *= 2;
+	}
+
 	if(rtn == NF_DROP_ERR(1))
 	{
 		printk("rkp-ua: Crashed.\n");

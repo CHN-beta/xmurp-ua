@@ -43,7 +43,7 @@ struct sk_buff* __rkpStream_buff_find(const struct sk_buff*, u_int32_t);
 
 void __rkpStream_buff_execute_core(struct sk_buff**, u_int16_t, bool);        // 最核心的步骤，集齐头部后被调用。搜索、替换。参数分别为：数据包链表、最后一个包中 http 头结束的位置、是否保留指定 ua
 
-struct rkpStream* rpStream_new(const struct sk_buff* skb)
+struct rkpStream* rkpStream_new(const struct sk_buff* skb)
 {
     struct rkpStream* rkps = kmalloc(sizeof(struct rkpStream), GFP_KERNEL);
     const struct iphdr* iph = ip_hdr(skb);
@@ -271,7 +271,7 @@ unsigned char* __rkpStream_skb_appBegin(const struct sk_buff* skb)
     return (unsigned char*)tcp_hdr(skb) + tcp_hdr(skb) -> doff * 4;
 }
 
-u_int16_t __rkpStream_dataLen(const struct sk_buff* skb)
+u_int16_t __rkpStream_skb_appLen(const struct sk_buff* skb)
 {
     return ntohs(ip_hdr(skb) -> tot_len) - ip_hdr(skb) -> ihl * 4 - tcp_hdr(skb) -> doff * 4;
 }
@@ -500,7 +500,7 @@ void __rkpStream_buff_execute_core(struct sk_buff** buff, u_int16_t last_len, bo
     {
         unsigned char* replace_begin;
         u_int16_t replace_len;
-        if(skb_ensure_writable(p, replace_begin + replace_len - p -> data) != 0)
+        if(skb_ensure_writable(p, __rkpStream_skb_appBegin(p) + __rkpStream_skb_appLen(p) - p -> data) != 0)
         {
             printk("rkp-ua::rkpStream::__rkpStream_buff_execute_core: Can not make skb writable, may caused by shortage of memory. Ignore it.\n");
             return;
