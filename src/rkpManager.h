@@ -47,6 +47,7 @@ u_int8_t rkpManager_execute(struct rkpManager* rkpm, struct sk_buff* skb)
         u_int8_t id = (ntohs(tcp_hdr(skb) -> source) + ntohs(tcp_hdr(skb) -> dest)) & 0xFF;
         struct rkpStream* rkps_new = rkpStream_new(skb);
         struct rkpStream *rkps = rkpm -> data[id];
+        printk("Add a stream id=%u.\n", id);
         if(rkps_new == 0)
         {
             printk("rkp-ua::rkpStream::rkpStream_new: `kmalloc` failed, may caused by shortage of memory.\n");
@@ -57,6 +58,7 @@ u_int8_t rkpManager_execute(struct rkpManager* rkpm, struct sk_buff* skb)
         while(rkps != 0)
             if(rkpStream_belong(rkps, skb))
             {
+                printk("Found same stream %u.\n", id);
                 if(rkps -> prev != 0)
                     rkps -> prev -> next = rkps -> next;
                 if(rkps -> next != 0)
@@ -78,9 +80,6 @@ u_int8_t rkpManager_execute(struct rkpManager* rkpm, struct sk_buff* skb)
             rkps_new -> next = rkpm -> data[id];
             rkpm -> data[id] = rkps_new;
         }
-
-        // 执行
-        return rkpStream_execute(rkps_new, skb);
     }
     else
     // 使用已经有的流
@@ -92,7 +91,7 @@ u_int8_t rkpManager_execute(struct rkpManager* rkpm, struct sk_buff* skb)
                 return rkpStream_execute(rkps, skb);
             else
                 rkps = rkps -> next;
-        printk("rkp-ua::rkpStream::rkpStream_execute: Target stream not found.\n");
+        printk("rkp-ua::rkpStream::rkpStream_execute: Target stream %u not found.\n", id);
         return NF_DROP;
     }
 }

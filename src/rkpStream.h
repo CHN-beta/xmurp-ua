@@ -17,12 +17,12 @@ struct rkpStream
     struct rkpStream *prev, *next;
 };
 
-struct rkpStream* rkpStream_new(const struct sk_buff*);                   // 构造函数，得到的流的状态是捕获这个数据包之前的状态。内存不够时返回 0。
+struct rkpStream* rkpStream_new(const struct sk_buff*);                   // 构造函数，得到的流的状态是捕获这个数据包之后的状态。内存不够时返回 0。
 void rkpStream_del(struct rkpStream*);                              // 析构函数
 bool rkpStream_belong(const struct rkpStream*, const struct sk_buff*);      // 判断一个数据包是否属于一个流
 unsigned rkpStream_execute(struct rkpStream*, struct sk_buff*);     // 处理一个数据包（假定包属于这个流）
 
-void __rkpStream_refresh_ack(struct rkpStream*, u_int32_t);         // 刷新确认序列号。第二个参数就是即将设定的确认号。会自动重新计算序列号的偏移，以及释放 buff_prev 中的多余数据包
+void __rkpStream_refresh_ack(struct rkpStream*, u_int32_t);         // 刷新确认序列号。第二个参数就是ack包中的确认号（绝对值）。会自动重新计算序列号的偏移，以及释放 buff_prev 中的多余数据包
 
 unsigned char* __rkpStream_skb_appBegin(const struct sk_buff*);           // 返回一个包的应用层数据起始位置
 u_int16_t __rkpStream_skb_appLen(const struct sk_buff*);                  // 返回一个包的应用层数据长度
@@ -59,8 +59,8 @@ struct rkpStream* rkpStream_new(const struct sk_buff* skb)
     rkps -> id[1] = ntohl(iph -> daddr);
     rkps -> id[2] = (((u_int32_t)ntohs(tcph -> source)) << 16) + ntohs(tcph -> dest);
     rkps -> buff = rkps -> buff_prev = rkps -> buff_next = 0;
-    rkps -> ack = ntohl(tcph -> seq);
-    rkps -> seq = 1;
+    rkps -> ack = ntohl(tcph -> seq) - 1;
+    rkps -> seq = 2;
     rkps -> last_active = now();
     rkps -> scan_matched = 0;
     rkps -> preserve = rkpSettings_preserve(skb);
@@ -82,7 +82,7 @@ bool rkpStream_belong(const struct rkpStream* rkps, const struct sk_buff* skb)
             return false;
         if(rkps -> id[1] != ntohl(ip_hdr(skb) -> daddr))
             return false;
-        if((rkps -> id[2] != ntohs(tcp_hdr(skb) -> source) << 16) + ntohs(tcp_hdr(skb) -> dest))
+        if(rkps -> id[2] != (ntohs(tcp_hdr(skb) -> source) << 16) + ntohs(tcp_hdr(skb) -> dest))
             return false;
         return true;
     }
@@ -92,7 +92,7 @@ bool rkpStream_belong(const struct rkpStream* rkps, const struct sk_buff* skb)
             return false;
         if(rkps -> id[1] != ntohl(ip_hdr(skb) -> saddr))
             return false;
-        if((rkps -> id[2] != ntohs(tcp_hdr(skb) -> dest) << 16) + ntohs(tcp_hdr(skb) -> source))
+        if(rkps -> id[2] != (ntohs(tcp_hdr(skb) -> dest) << 16) + ntohs(tcp_hdr(skb) -> source))
             return false;
         return true;
     }
@@ -102,12 +102,15 @@ unsigned rkpStream_execute(struct rkpStream* rkps, struct sk_buff* skb)
 {
     int32_t seq;
 
+    printk("rkpStream_execute\n");
+
     // 肯定需要更新时间
     rkps -> last_active = now();
 
     // 服务端返回确认包的情况，更新一下确认号，返回 sccept。以后的情况，都是客户端发往服务端的了。
     if(!rkpSettings_request(skb))
     {
+        printk("DEBUG0\n");
         int32_t seq = __rkpStream_skb_seq(rkps -> ack, ntohl(tcp_hdr(skb) -> ack_seq));
         if(seq > 0)
             __rkpStream_refresh_ack(rkps, ntohl(tcp_hdr(skb) -> ack_seq));
@@ -116,12 +119,17 @@ unsigned rkpStream_execute(struct rkpStream* rkps, struct sk_buff* skb)
 
     // 不携带应用层数据的情况。直接接受即可。以后的情况，都是含有应用层数据的包了。
     if(__rkpStream_skb_appLen(skb) == 0)
+    {
+        printk("DEBUG1\n");
         return NF_ACCEPT;
+    }
     
     // 检查数据包是否是将来的数据包。如果是的话，需要放到 buff_next 等待处理。
     seq = __rkpStream_skb_seq(rkps -> ack, ntohl(tcp_hdr(skb) -> seq));
+    printk("seq %d\n", seq);
     if(seq > rkps -> seq)
     {
+        printk("DEBUG2\n");
         __rkpStream_buff_retain_auto(&(rkps -> buff_next), skb);
         return NF_STOLEN;
     }
@@ -136,6 +144,7 @@ unsigned rkpStream_execute(struct rkpStream* rkps, struct sk_buff* skb)
     // 检查数据包是否是重传数据包。如果是的话，可能需要修改数据。然后，将它发出。接下来的情况，就一定是刚好是需要的序列号的情况了
     if(seq < rkps -> seq)
     {
+        printk("DEBUG3\n");
         const struct sk_buff* skb_prev = __rkpStream_buff_find(rkps -> buff_prev, ntohl(tcp_hdr(skb) -> seq));
         if(skb_prev != 0 && tcp_hdr(skb_prev) -> seq == tcp_hdr(skb) -> seq)
         // 存在相符的数据包。将数据拷贝过去。
@@ -153,12 +162,14 @@ unsigned rkpStream_execute(struct rkpStream* rkps, struct sk_buff* skb)
     // 如果是在 sniffing 的情况下，那一定先扫描一下再说
     if(rkps -> status == rkpStream_sniffing)
     {
+        printk("DEBUG4\n");
         u_int16_t scan = __rkpStream_data_scan(__rkpStream_skb_appBegin(skb), __rkpStream_skb_appLen(skb),
                 str_head_end, rkps -> scan_matched);
         
         if(scan & 0x1)
         // 扫描找到了 HTTP 头的结尾，那么将这个数据包补到 buff 中，更新 seq，开始查找、替换、发出，然后根据情况设置状态，再考虑 buff_next 中的包，最后返回 STOLEN
         {
+            printk("DEBUG5\n");
             struct sk_buff* skbp = rkps -> buff;
 
             // 追加到 buff 后面，更新 seq
@@ -219,6 +230,7 @@ unsigned rkpStream_execute(struct rkpStream* rkps, struct sk_buff* skb)
         else
         // 没有找到结尾，也没有push。那么，将这个数据包补到 buff 中，更新 seq 和 查找状态，再考虑 buff_next 中的包，最后返回 STOLEN
         {
+            printk("DEBUG6\n");
             // 追加到 buff
             __rkpStream_buff_retain_end(&(rkps -> buff), skb);
 
@@ -235,6 +247,7 @@ unsigned rkpStream_execute(struct rkpStream* rkps, struct sk_buff* skb)
     else
     // 如果是在 waiting 的状态下，那么设置 seq 和状态，然后考虑 buff_next 中的包，然后返回 ACCEPT 就可以了
     {
+        printk("DEBUG7\n");
         // 设置 seq 和状态
         rkps -> seq = __rkpStream_skb_seq(rkps -> ack, ntohl(tcp_hdr(skb) -> seq)) + __rkpStream_skb_appLen(skb);
         if(tcp_hdr(skb) -> psh)
@@ -250,6 +263,7 @@ unsigned rkpStream_execute(struct rkpStream* rkps, struct sk_buff* skb)
 void __rkpStream_refresh_ack(struct rkpStream* rkps, u_int32_t ack)
 {
     struct sk_buff* skbp;
+    ack--;
 
     // 重新计算 ack 和 seq
     rkps -> ack = ack;
@@ -427,6 +441,8 @@ void __rkpStream_buff_execute_core(struct sk_buff** buff, u_int16_t last_len, bo
 
     struct sk_buff *skb_ua_begin, *skb_ua_end;
     u_int16_t pos_ua_begin, pos_ua_end;
+
+    printk("__rkpStream_buff_execute_core\n");
 
     // 寻找 ua 开始的位置
     for(p = *buff, rtn = 0; p != 0; p = p -> next)

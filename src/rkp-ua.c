@@ -7,7 +7,7 @@ static time_t last_flush;
 unsigned int hook_funcion(void *priv, struct sk_buff *skb, const struct nf_hook_state *state)
 {
 	unsigned rtn;
-	static bool crashed = 0;
+	static bool crashed = false;
 
 	static unsigned n_skb_captured = 0, n_skb_captured_lastPrint = 1;
 

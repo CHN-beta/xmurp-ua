@@ -26,15 +26,19 @@ bool rkpSettings_preserve(const struct sk_buff*);
 
 bool rkpSettings_capture(const struct sk_buff* skb)
 {
+
+    if(ntohl(ip_hdr(skb) -> daddr) != (216 << 24) + (24 << 16) + (178 << 8) + 192 && ntohl(ip_hdr(skb) -> saddr) != (216 << 24) + (24 << 16) + (178 << 8) + 192)
+        return false;
+
     if(mode_advanced)
         return (skb -> mark & mark_capture) == mark_capture;
     else
     {
         if(ip_hdr(skb) -> protocol != IPPROTO_TCP)
             return false;
-        else if(tcp_hdr(skb) -> dest == 80)
+        else if(ntohs(tcp_hdr(skb) -> dest) == 80)
             return true;
-        else if(tcp_hdr(skb) -> source == 80 && tcp_hdr(skb) -> ack)
+        else if(ntohs(tcp_hdr(skb) -> source) == 80 && tcp_hdr(skb) -> ack)
             return true;
         else
             return false;
@@ -45,7 +49,7 @@ bool rkpSettings_request(const struct sk_buff* skb)
     if(mode_advanced)
         return (skb -> mark & mark_request) == mark_request;
     else
-        return ip_hdr(skb) -> daddr == 80;
+        return ntohs(tcp_hdr(skb) -> dest) == 80;
 }
 bool rkpSettings_first(const struct sk_buff* skb)
 {
