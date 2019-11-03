@@ -41,6 +41,8 @@ void rkpManager_del(struct rkpManager* rkpm)
 
 u_int8_t rkpManager_execute(struct rkpManager* rkpm, struct sk_buff* skb)
 {
+    printk("syn %d ack %d\n", tcp_hdr(skb) -> syn, tcp_hdr(skb) -> ack);
+    printk("sport %d dport %d\n", tcp_hdr(skb) -> source, tcp_hdr(skb) -> dest);
     if(rkpSettings_first(skb))
     // 新增加一个流或覆盖已经有的流
     {
@@ -80,12 +82,15 @@ u_int8_t rkpManager_execute(struct rkpManager* rkpm, struct sk_buff* skb)
             rkps_new -> next = rkpm -> data[id];
             rkpm -> data[id] = rkps_new;
         }
+
+        return NF_ACCEPT;
     }
     else
     // 使用已经有的流
     {
         u_int8_t id = (ntohs(tcp_hdr(skb) -> source) + ntohs(tcp_hdr(skb) -> dest)) & 0xFF;
         struct rkpStream *rkps = rkpm -> data[id];
+        printk("rkpStream_belong %d\n", rkpStream_belong(rkps, skb));
         while(rkps != 0)
             if(rkpStream_belong(rkps, skb))
                 return rkpStream_execute(rkps, skb);

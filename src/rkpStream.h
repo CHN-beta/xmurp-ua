@@ -76,13 +76,17 @@ void rkpStream_del(struct rkpStream* rkps)
 }
 bool rkpStream_belong(const struct rkpStream* rkps, const struct sk_buff* skb)
 {
+    printk("rkpStream_belong\n");
+    printk("syn %d ack %d\n", tcp_hdr(skb) -> syn, tcp_hdr(skb) -> ack);
+    printk("sport %d dport %d\n", tcp_hdr(skb) -> source, tcp_hdr(skb) -> dest);
+    printk("rkpSettings_request %d\n", rkpSettings_request(skb));
     if(rkpSettings_request(skb))
     {
         if(rkps -> id[0] != ntohl(ip_hdr(skb) -> saddr))
             return false;
         if(rkps -> id[1] != ntohl(ip_hdr(skb) -> daddr))
             return false;
-        if(rkps -> id[2] != (ntohs(tcp_hdr(skb) -> source) << 16) + ntohs(tcp_hdr(skb) -> dest))
+        if(rkps -> id[2] != ((u_int32_t)ntohs(tcp_hdr(skb) -> source) << 16) + ntohs(tcp_hdr(skb) -> dest))
             return false;
         return true;
     }
@@ -92,7 +96,7 @@ bool rkpStream_belong(const struct rkpStream* rkps, const struct sk_buff* skb)
             return false;
         if(rkps -> id[1] != ntohl(ip_hdr(skb) -> saddr))
             return false;
-        if(rkps -> id[2] != (ntohs(tcp_hdr(skb) -> dest) << 16) + ntohs(tcp_hdr(skb) -> source))
+        if(rkps -> id[2] != ((u_int32_t)ntohs(tcp_hdr(skb) -> dest) << 16) + ntohs(tcp_hdr(skb) -> source))
             return false;
         return true;
     }

@@ -11,7 +11,6 @@
 #include <linux/types.h>
 #include <linux/random.h>
 #include <linux/moduleparam.h>
-#include <asm/limits.h>
 #include <linux/time.h>
 
 const static unsigned char* str_ua_begin = "User-Agent: ";
