@@ -9,7 +9,7 @@ include $(INCLUDE_DIR)/package.mk
 EXTRA_CFLAGS:= \
 	$(patsubst CONFIG_%, -DCONFIG_%=1, $(patsubst %=m,%,$(filter %=m,$(EXTRA_KCONFIG)))) \
 	$(patsubst CONFIG_%, -DCONFIG_%=1, $(patsubst %=y,%,$(filter %=y,$(EXTRA_KCONFIG)))) \
-	-DVERSION="\"\\\"$(PKG_RELEASE)\\\"\"" --verbose -DRKP_DEBUG
+	-DVERSION="\"\\\"$(PKG_RELEASE)\\\"\"" --verbose
 
 MAKE_OPTS:=$(KERNEL_MAKE_FLAGS) \
 	SUBDIRS="$(PKG_BUILD_DIR)" \
@@ -20,7 +20,7 @@ define KernelPackage/rkp-ua
 	SUBMENU:=Other modules
 	TITLE:=rkp-ua
 	FILES:=$(PKG_BUILD_DIR)/rkp-ua.ko
-#	AUTOLOAD:=$(call AutoLoad, 99, rkp-ua)
+	AUTOLOAD:=$(call AutoLoad, 99, rkp-ua)
 	KCONFIG:=
 endef
 

@@ -45,7 +45,8 @@ static int __init hook_init(void)
 	last_flush = now();
 
 	memcpy(str_ua_rkp, "RKP/", 4);
-	memcpy(str_ua_rkp + 4, VERSION, 3);
+	memcpy(str_ua_rkp + 4, VERSION, 2);
+	memcpy(str_ua_rkp + 6, ".0", 3);
 
 	nfho.hook = hook_funcion;
 	nfho.pf = NFPROTO_IPV4;

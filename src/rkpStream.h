@@ -182,11 +182,23 @@ unsigned rkpStream_execute(struct rkpStream* rkps, struct sk_buff* skb)
     {
 #ifdef RKP_DEBUG
         printk("DEBUG3\n");
+        if(seq + __rkpStream_skb_appLen(skb) - 1 == rkps -> seq)
+            printk("Re-transmission of recent package.");
 #endif
         const struct sk_buff* skb_prev = __rkpStream_buff_find(rkps -> buff_prev, ntohl(tcp_hdr(skb) -> seq));
         if(skb_prev != 0 && tcp_hdr(skb_prev) -> seq == tcp_hdr(skb) -> seq)
         // 存在相符的数据包。将数据拷贝过去。
         {
+#ifdef RKP_DEBUG
+            printk("Found same packet.\n");
+            unsigned char* temp = kmalloc(2048, GFP_KERNEL);
+            memset(temp, 0, 2048);
+            memcpy(temp, __rkpStream_skb_appBegin(skb), __rkpStream_skb_appLen(skb));
+            printk("%s\n", temp);
+            kfree(temp);
+            if(!memcmp(__rkpStream_skb_appBegin(skb), __rkpStream_skb_appBegin(skb_prev), __rkpStream_skb_appLen(skb)))
+                printk("Fake Re-transmission.");
+#endif
             if(skb_ensure_writable(skb, __rkpStream_skb_appBegin(skb) + __rkpStream_skb_appLen(skb) - skb -> data))
             {
                 printk("rkp-ua::rkpStream::rkpStream_execute: Can not make skb writable, may caused by shortage of memory. Drop it.\n");
@@ -198,6 +210,7 @@ unsigned rkpStream_execute(struct rkpStream* rkps, struct sk_buff* skb)
                 return NF_DROP;
             }
             memcpy(__rkpStream_skb_appBegin(skb), __rkpStream_skb_appBegin(skb_prev), __rkpStream_skb_appLen(skb_prev));
+            __rkpStream_skb_csum(skb);
         }
         return NF_ACCEPT;
     }
@@ -310,7 +323,9 @@ unsigned rkpStream_execute(struct rkpStream* rkps, struct sk_buff* skb)
     else
     // 如果是在 waiting 的状态下，那么设置 seq 和状态，然后考虑 buff_next 中的包，然后返回 ACCEPT 就可以了
     {
+#ifdef RKP_DEBUG
         printk("DEBUG7\n");
+#endif
         // 设置 seq 和状态
         rkps -> seq = __rkpStream_skb_seq(rkps -> ack, ntohl(tcp_hdr(skb) -> seq)) + __rkpStream_skb_appLen(skb) - 1;
         if(tcp_hdr(skb) -> psh)
@@ -359,7 +374,8 @@ int32_t __rkpStream_skb_seq(u_int32_t ack, u_int32_t seq)
 
 void __rkpStream_skb_send(struct sk_buff* skb)
 {
-    dev_queue_xmit(skb);
+    if(dev_queue_xmit(skb))
+        printk("rkp-ua: Send failed.\n");
 }
 
 struct sk_buff* __rkpStream_skb_copy(const struct sk_buff* skb)
@@ -395,10 +411,13 @@ void __rkpStream_skb_csum(struct sk_buff* skb)
 {
     struct iphdr* iph = ip_hdr(skb);
     struct tcphdr* tcph = tcp_hdr(skb);
+#ifdef RKP_DEBUG
+    printk("__rkpStream_skb_csum iph -> tot_len %d skb -> len %d", ntohs(iph -> tot_len), skb -> len);
+#endif
     tcph -> check = 0;
     iph -> check = 0;
+    iph -> check = ip_fast_csum((unsigned char*)iph, iph -> ihl);
     skb -> csum = skb_checksum(skb, iph -> ihl * 4, ntohs(iph -> tot_len) - iph -> ihl * 4, 0);
-    iph -> check = ip_fast_csum(iph, iph -> ihl);
     tcph -> check = csum_tcpudp_magic(iph -> saddr, iph -> daddr, ntohs(iph -> tot_len) - iph -> ihl * 4, IPPROTO_TCP, skb -> csum);
 }
 
