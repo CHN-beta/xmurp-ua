@@ -27,11 +27,18 @@ bool rkpSettings_preserve(const struct sk_buff*);
 bool rkpSettings_capture(const struct sk_buff* skb)
 {
 
+#ifdef RKP_DEBUG
     if(ntohl(ip_hdr(skb) -> daddr) != (216 << 24) + (24 << 16) + (178 << 8) + 192 && ntohl(ip_hdr(skb) -> saddr) != (216 << 24) + (24 << 16) + (178 << 8) + 192)
         return false;
+#endif
 
     if(mode_advanced)
+    {
+#ifdef RKP_DEBUG
+    printk("\tadvanced return %d", (skb -> mark & mark_capture) == mark_capture);
+#endif
         return (skb -> mark & mark_capture) == mark_capture;
+    }
     else
     {
         if(ip_hdr(skb) -> protocol != IPPROTO_TCP)

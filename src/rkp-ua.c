@@ -30,6 +30,7 @@ unsigned int hook_funcion(void *priv, struct sk_buff *skb, const struct nf_hook_
 		printk("rkp-ua: Crashed.\n");
 		crashed = 1;
 		rkpManager_del(rkpm);
+		rkpm = 0;
 		return NF_STOLEN;
 	}
 	else 
@@ -44,12 +45,12 @@ static int __init hook_init(void)
 	last_flush = now();
 
 	memcpy(str_ua_rkp, "RKP/", 4);
-	memcpy(str_ua_rkp, VERSION, 3);
+	memcpy(str_ua_rkp + 4, VERSION, 3);
 
 	nfho.hook = hook_funcion;
 	nfho.pf = NFPROTO_IPV4;
 	nfho.hooknum = NF_INET_POST_ROUTING;
-	nfho.priority = NF_IP_PRI_NAT_SRC;
+	nfho.priority = NF_IP_PRI_RAW;
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4,13,0)
     ret = nf_register_net_hook(&init_net, &nfho);
@@ -70,7 +71,8 @@ static int __init hook_init(void)
 
 static void __exit hook_exit(void)
 {
-	rkpManager_del(rkpm);
+	if(rkpm != 0)
+		rkpManager_del(rkpm);
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4,13,0)
     nf_unregister_net_hook(&init_net, &nfho);

@@ -41,15 +41,21 @@ void rkpManager_del(struct rkpManager* rkpm)
 
 u_int8_t rkpManager_execute(struct rkpManager* rkpm, struct sk_buff* skb)
 {
-    printk("syn %d ack %d\n", tcp_hdr(skb) -> syn, tcp_hdr(skb) -> ack);
-    printk("sport %d dport %d\n", tcp_hdr(skb) -> source, tcp_hdr(skb) -> dest);
+#ifdef RKP_DEBUG
+    printk("rkpManager_execute\n");
+    printk("\tsyn %d ack %d\n", tcp_hdr(skb) -> syn, tcp_hdr(skb) -> ack);
+    printk("\tsport %d dport %d\n", tcp_hdr(skb) -> source, tcp_hdr(skb) -> dest);
+    printk("\tid %d\n", (ntohs(tcp_hdr(skb) -> source) + ntohs(tcp_hdr(skb) -> dest)) & 0xFF);
+#endif
     if(rkpSettings_first(skb))
     // 新增加一个流或覆盖已经有的流
     {
         u_int8_t id = (ntohs(tcp_hdr(skb) -> source) + ntohs(tcp_hdr(skb) -> dest)) & 0xFF;
         struct rkpStream* rkps_new = rkpStream_new(skb);
-        struct rkpStream *rkps = rkpm -> data[id];
-        printk("Add a stream id=%u.\n", id);
+        struct rkpStream* rkps = rkpm -> data[id];
+#ifdef RKP_DEBUG
+        printk("\nAdd a stream id=%u.\n", id);
+#endif
         if(rkps_new == 0)
         {
             printk("rkp-ua::rkpStream::rkpStream_new: `kmalloc` failed, may caused by shortage of memory.\n");
@@ -89,8 +95,10 @@ u_int8_t rkpManager_execute(struct rkpManager* rkpm, struct sk_buff* skb)
     // 使用已经有的流
     {
         u_int8_t id = (ntohs(tcp_hdr(skb) -> source) + ntohs(tcp_hdr(skb) -> dest)) & 0xFF;
-        struct rkpStream *rkps = rkpm -> data[id];
-        printk("rkpStream_belong %d\n", rkpStream_belong(rkps, skb));
+        struct rkpStream* rkps = rkpm -> data[id];
+#ifdef RKP_DEBUG
+        printk("rkpStream_belong %d\n", (int)rkpStream_belong(rkps, skb));
+#endif
         while(rkps != 0)
             if(rkpStream_belong(rkps, skb))
                 return rkpStream_execute(rkps, skb);
