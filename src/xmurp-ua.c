@@ -141,7 +141,11 @@ inline u_int8_t skb_scan(char *data_start, char *data_end)
 
 // 捕获数据包，检查是否符合条件。如果符合，则送到下一层，并根据下一层返回的结果，如果必要的话，重新计算校验和以及继续捕获下一个分片。
 // ip地址、端口号、iph->tot_len需要网络顺序到主机顺序的转换。校验和时，除长度字段外，不需要手动进行网络顺序和主机顺序的转换。
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,2,0)
 unsigned int hook_funcion(void *priv, struct sk_buff *skb, const struct nf_hook_state *state)
+#else
+unsigned int hook_funcion(const struct nf_hook_ops *ops, struct sk_buff *skb, const struct net_device *in, const struct net_device *out, int (*okfn)(struct sk_buff *))
+#endif
 {
 	register struct tcphdr *tcph;
 	register struct iphdr *iph;
@@ -204,7 +208,11 @@ unsigned int hook_funcion(void *priv, struct sk_buff *skb, const struct nf_hook_
 		return NF_ACCEPT;
 
 	// 确保 skb 可以被修改，或者不可以被修改的话把它变得可修改
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 19, 0)
 	if(skb_ensure_writable(skb, (char*)data_end - (char*)skb -> data) || skb == 0 || skb -> data == 0)
+#else
+	if(!skb_make_writable(skb, (char*)data_end - (char*)skb -> data) || skb == 0 || skb -> data == 0)
+#endif
 	{
 		if(!not_writable)
 		{
