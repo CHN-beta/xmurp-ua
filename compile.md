@@ -1,5 +1,7 @@
 以下，我假定你至少稍有一点命令行基础，搞不清当前目录或者 `cp`、`rm` 都不会用的话，自己找资料。
 
+同时，以下内容中的代码仅仅是示例，目的是让你明白怎么回事，而不是复制粘贴就可以。
+
 #### 一般的编译方法
 
 对于 18.06 以上的 SDK，照这个方法就行了。
@@ -91,4 +93,15 @@ rm -r staging_dir/host/bin
 ln -s /usr/bin staging_dir/host/
 rm -r build_dir/target-mips_24kc_musl-1.1.16/linux-ar71xx_generic/xmurp-ua
 make package/xmurp-ua/compile V=sc ARCH=mips CROSS_COMPILE=/home/chn/Desktop/lede-sdk-17.01.5-ar71xx-generic_gcc-5.4.0_musl-1.1.16.Linux-x86_64/staging_dirtoolchain-mips_24kc_gcc-5.4.0_musl-1.1.16/bin/mips-openwrt-linux-musl-
+```
+
+#### ARCH 混乱
+
+在给某个潘多拉编译的时候，发现在一些地方 `ARCH` 为 `mips` 而另一些地方为 `mipsel`。记得之前给某个版本的 LEDE 编译时也出现过类似的错误。用软链接解决。
+
+```bash
+cd build_dir/target-mipsel_1004kc+dsp_uClibc-1.0.x/linux-ralink_mt7621/linux-3.14.79/arch
+ln -s mips mipsel
+cd ../../../../..
+make package/xmurp-ua/compile V=sc ARCH=mipsel CROSS_COMPILE=/home/chn/Desktop/PandoraBox-SDK-ralink-mt7621_gcc-5.5.0_uClibc-1.0.x.Linux-x86_64-2019-02-01-git-0231ad4b5/staging_dir/toolchain-mipsel_1004kc+dsp_gcc-5.5.0_uClibc-1.0.x/bin/mipsel-openwrt-linux-
 ```
