@@ -100,8 +100,8 @@ make package/xmurp-ua/compile V=sc ARCH=mips CROSS_COMPILE=/home/chn/Desktop/led
 在给某个潘多拉编译的时候，发现在一些地方 `ARCH` 为 `mips` 而另一些地方为 `mipsel`。记得之前给某个版本的 LEDE 编译时也出现过类似的错误。用软链接解决。
 
 ```bash
-cd build_dir/target-mipsel_1004kc+dsp_uClibc-1.0.x/linux-ralink_mt7621/linux-3.14.79/arch
-ln -s mips mipsel
-cd ../../../../..
-make package/xmurp-ua/compile V=sc ARCH=mipsel CROSS_COMPILE=/home/chn/Desktop/PandoraBox-SDK-ralink-mt7621_gcc-5.5.0_uClibc-1.0.x.Linux-x86_64-2019-02-01-git-0231ad4b5/staging_dir/toolchain-mipsel_1004kc+dsp_gcc-5.5.0_uClibc-1.0.x/bin/mipsel-openwrt-linux-
+cd build_dir
+ln -s target-mipsel_1004kc+dsp_uClibc-1.0.x target-mips_1004kc+dsp_uClibc-1.0.x
+cd ..
+make package/xmurp-ua/compile V=sc ARCH=mips CROSS_COMPILE=/home/chn/Desktop/PandoraBox-SDK-ralink-mt7621_gcc-5.5.0_uClibc-1.0.x.Linux-x86_64-2019-02-01-git-0231ad4b5/staging_dir/toolchain-mipsel_1004kc+dsp_gcc-5.5.0_uClibc-1.0.x/bin/mipsel-openwrt-linux-
 ```
