@@ -1,3 +1,4 @@
+#pragma once
 #include "common.h"
 
 static bool mode_advanced = false;
@@ -9,11 +10,9 @@ module_param_array(str_preserve, charp, &n_str_preserve, 0);
 
 static u_int32_t mark_capture = 0x100;
 module_param(mark_capture, uint, 0);
-static u_int32_t mark_request = 0x200;
-module_param(mark_request, uint, 0);
-static u_int32_t mark_first = 0x400;
+static u_int32_t mark_first = 0x200;
 module_param(mark_first, uint, 0);
-static u_int32_t mark_preserve = 0x800;
+static u_int32_t mark_preserve = 0x400;
 module_param(mark_preserve, uint, 0);
 
 static unsigned time_keepalive = 1200;
@@ -50,13 +49,6 @@ bool rkpSettings_capture(const struct sk_buff* skb)
         else
             return false;
     }
-}
-bool rkpSettings_request(const struct sk_buff* skb)
-{
-    if(mode_advanced)
-        return (skb -> mark & mark_request) == mark_request;
-    else
-        return ntohs(tcp_hdr(skb) -> dest) == 80;
 }
 bool rkpSettings_first(const struct sk_buff* skb)
 {

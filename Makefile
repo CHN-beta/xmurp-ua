@@ -20,7 +20,7 @@ define KernelPackage/rkp-ua
 	SUBMENU:=Other modules
 	TITLE:=rkp-ua
 	FILES:=$(PKG_BUILD_DIR)/rkp-ua.ko
-	AUTOLOAD:=$(call AutoLoad, 99, rkp-ua)
+#	AUTOLOAD:=$(call AutoLoad, 99, rkp-ua)
 	KCONFIG:=
 endef
 

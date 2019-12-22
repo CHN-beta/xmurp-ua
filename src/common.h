@@ -1,3 +1,4 @@
+#pragma once
 #include <linux/module.h>
 #include <linux/version.h>
 #include <linux/kmod.h>
@@ -18,13 +19,25 @@ const static unsigned char* str_ua_end = "\r\n";
 const static unsigned char* str_head_end = "\r\n\r\n";
 static unsigned char str_ua_rkp[9];
 
+void* rkpMalloc(unsigned size)
+{
+    void* p = kmalloc(size, GFP_KERNEL);
+    if(p == 0)
+        printk("rkp-ua: malloc failed.\n");
+    return p;
+}
+void rkpFree(void* p)
+{
+    kfree(p);
+}
+
 time_t now(void)
 {
-    struct timespec* ts = kmalloc(sizeof(struct timespec), GFP_KERNEL);
+    struct timespec* ts = rkpMalloc(sizeof(struct timespec));
     time_t rtn;
     getnstimeofday(ts);
     rtn = ts -> tv_sec;
-    kfree(ts);
+    rkpFree(p);
 #ifdef RKP_DEBUG
     printk("now %lu\n", ts -> tv_sec);
 #endif
