@@ -16,13 +16,12 @@ void rkpPacket_drop(struct rkpPacket*);
 unsigned char* rkpPacket_appBegin(struct rkpPacket*);
 unsigned char* rkpPacket_appEnd(struct rkpPacket*);
 unsigned rkpPacket_appLen(struct rkpPacket*);
-u_int32_t rkpPacket_seq(struct rkpPacket*);
-u_int32_t rkpPacket_ack(struct rkpPacket*);
+int32_t rkpPacket_seq(struct rkpPacket*);
+int32_t rkpPacket_ack(struct rkpPacket*);
 bool rkpPacket_psh(struct rkpPacket*);
 
-bool rkpPacket_scan(struct rkpPacket*, unsigned char*, unsigned*);    // 搜索指定字符串，已匹配的长度存入第三个参数，返回是否完全匹配到了
-
 void rkpPacket_csum(struct rkpPacket*);
+bool rkpPacket_makeWriteable(struct rkpPacket*);
 
 struct rkpPacket* rkpPacket_new(struct sk_buff* skb)
 {
@@ -91,13 +90,17 @@ unsigned rkpPacket_appLen(struct rkpPacket* p)
 {
     return ntohs(ip_hdr(p -> skb) -> tot_len) - ip_hdr(p -> skb) -> ihl * 4 - tcp_hdr(p -> skb) -> doff * 4;
 }
-u_int32_t rkpPacket_seq(struct rkpPacket* p)
+int32_t rkpPacket_seq(struct rkpPacket* p)
 {
     return ntohl(tcp_hdr(p -> skb) -> seq);
 }
-u_int32_t rkpPacket_ack(struct rkpPacket* p)
+int32_t rkpPacket_ack(struct rkpPacket* p)
 {
     return ntohl(tcp_hdr(p -> skb) -> ack);
+}
+bool rkpPacket_psh(struct rkpPacket* rkpp)
+{
+    return tcp_hdr(rkpp -> skb) -> psh;
 }
 
 void rkpPacket_csum(struct rkpPacket* p)
@@ -110,9 +113,23 @@ void rkpPacket_csum(struct rkpPacket* p)
     tcph -> check = 0;
     iph -> check = 0;
     iph -> check = ip_fast_csum((unsigned char*)iph, iph -> ihl);
-    skb -> csum = skb_checksum(p -> skb, iph -> ihl * 4, ntohs(iph -> tot_len) - iph -> ihl * 4, 0);
+    p -> skb -> csum = skb_checksum(p -> skb, iph -> ihl * 4, ntohs(iph -> tot_len) - iph -> ihl * 4, 0);
     tcph -> check = csum_tcpudp_magic(iph -> saddr, iph -> daddr, ntohs(iph -> tot_len) - iph -> ihl * 4, IPPROTO_TCP, p -> skb -> csum);
 #ifdef RKP_DEBUG
     printk("rkp-ua: rkpPacket_csum end.\n");
 #endif
+}
+
+bool rkpPacket_makeWriteable(struct rkpPacket* rkpp)
+{
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 19, 0)
+	if(skb_ensure_writable(rkpp -> skb, rkpPacket_appEnd(rkpp) - (unsigned char*)rkpp -> skb -> data) || rkpp -> skb -> data == 0)
+#else
+	if(!skb_make_writable(rkpp -> skb, rkpPacket_appEnd(rkpp)- (unsigned char*)rkpp -> skb -> data) || rkpp -> skb -> data == 0)
+#endif
+    {
+        printk("rkp-ua: rkpPacket_makeWriteable: failed.\n");
+        return false;
+    }
+    return true;
 }

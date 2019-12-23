@@ -13,6 +13,7 @@
 #include <linux/random.h>
 #include <linux/moduleparam.h>
 #include <linux/time.h>
+#include <linux/mutex.h>
 
 const static unsigned char* str_ua_begin = "User-Agent: ";
 const static unsigned char* str_ua_end = "\r\n";
@@ -37,7 +38,7 @@ time_t now(void)
     time_t rtn;
     getnstimeofday(ts);
     rtn = ts -> tv_sec;
-    rkpFree(p);
+    rkpFree(ts);
 #ifdef RKP_DEBUG
     printk("now %lu\n", ts -> tv_sec);
 #endif

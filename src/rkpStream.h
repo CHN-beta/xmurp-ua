@@ -29,24 +29,8 @@ int32_t __rkpStream_seq_scanEnd(struct rkpStream*);         // 返回 buff_scan 
 void __rkpStream_insert_auto(struct rkpStream*, struct rkpPacket**, struct rkpPacket*);     // 在指定链表中插入一个节点
 void __rkpStream_insert_end(struct rkpStream*, struct rkpPacket**, struct rkpPacket*);
 
-bool __rkpStream_scan(struct rkpStream*, struct rkpPacket*, unsigned char*);  // 在包的应用层搜索 ua 头的结尾
+bool __rkpStream_scan(struct rkpStream*, struct rkpPacket*);  // 在包的应用层搜索 ua 头的结尾
 void __rkpStream_modify(struct rkpStream*);         // 在已经收集到完整的 HTTP 头后，调用去按规则修改 buff_scan 中的包
-
-void __rkpStream_skb_send(struct sk_buff*);                         // 发送一个数据包
-struct sk_buff* __rkpStream_skb_copy(const struct sk_buff*);              // 复制一个数据包
-void __rkpStream_skb_del(struct sk_buff*);                          // 删除一个数据包
-void __rkpStream_skb_csum(struct sk_buff*);                         // 重新计算 tcp 和 ip 的校验和
-
-u_int16_t __rkpStream_data_scan(const unsigned char*, u_int16_t, const unsigned char*, u_int8_t); // 在指定字符串中扫描子字符串。返回值最低位表示是否完整地找到，其余 15 位表示匹配的长度（如果没有完整地找到）或子串结束时相对于起始时的位置
-void __rkpStream_data_replace(unsigned char*, u_int16_t, const unsigned char*, u_int16_t);   // 替换字符串。最后一个参数表明已经替换了多少个字节。其它参数与前者类似。
-
-void __rkpStream_buff_retain_end(struct sk_buff**, struct sk_buff*);        // 将一个数据包置入数据包链的末尾
-void __rkpStream_buff_retain_auto(struct sk_buff**, struct sk_buff*);       // 将一个数据包置入数据包链的合适位置
-void __rkpStream_buff_rejudge(struct rkpStream*, struct sk_buff**);         // 重新判定数据包链中的每个数据包
-struct sk_buff* __rkpStream_buff_find(const struct sk_buff*, u_int32_t);
-// 在一个已经按照序列号排序的数据包链中寻找序列号相符的包。如果没有相符的包，就返回最后一个序列号比要求的小的包。如果没有这样的包，就返回 0。第二个参数是要查找的序列号（绝对值，已转换字节序）
-
-void __rkpStream_buff_execute_core(struct sk_buff**, u_int16_t, bool);        // 最核心的步骤，集齐头部后被调用。搜索、替换。参数分别为：数据包链表、最后一个包中 http 头最后一个字节的位置、是否保留指定 ua
 
 struct rkpStream* rkpStream_new(const struct sk_buff* skb)
 {
@@ -65,8 +49,8 @@ struct rkpStream* rkpStream_new(const struct sk_buff* skb)
     rkps -> id[0] = ntohl(iph -> saddr);
     rkps -> id[1] = ntohl(iph -> daddr);
     rkps -> id[2] = (((u_int32_t)ntohs(tcph -> source)) << 16) + ntohs(tcph -> dest);
-    rkps -> buff_scan = rkps -> buff_disordered = rkps -> buff_sent = 0;
-    rkps -> seq_offset = ntohl(skb -> seq) + 1;
+    rkps -> buff_scan = rkps -> buff_disordered = 0;
+    rkps -> seq_offset = ntohl(tcp_hdr(skb) -> seq) + 1;
     rkps -> last_active = now();
     rkps -> scan_matched = 0;
     rkps -> prev = rkps -> next = 0;
@@ -80,23 +64,18 @@ void rkpStream_delete(struct rkpStream* rkps)
 #ifdef RKP_DEBUG
     printk("rkp-ua: rkpStream_delete start.\n");
 #endif
-    for(struct rkpPacket* p = rkps -> buff_scan; p != 0;)
+    struct rkpPacket* p;
+    for(p = rkps -> buff_scan; p != 0;)
     {
         struct rkpPacket* p2 = p;
         p = p -> next;
         rkpPacket_drop(p2);
     }
-    for(struct rkpPacket* p = rkps -> buff_disordered; p != 0;)
+    for(p = rkps -> buff_disordered; p != 0;)
     {
         struct rkpPacket* p2 = p;
         p = p -> next;
         rkpPacket_drop(p2);
-    }
-    for(struct rkpPacket* p = rkps -> buff_sent; p != 0;)
-    {
-        struct rkpPacket* p2 = p;
-        p = p -> next;
-        rkpPacket_delete(p2);
     }
     rkpFree(rkps);
 #ifdef RKP_DEBUG
@@ -104,37 +83,18 @@ void rkpStream_delete(struct rkpStream* rkps)
 #endif
 }
 
-bool rkpStream_belong(const struct rkpStream* rkps, const struct sk_buff* skb)
+bool rkpStream_belongTo(const struct rkpStream* rkps, const struct sk_buff* skb)
 {
 #ifdef RKP_DEBUG
     printk("rkp-ua: rkpStream_belongTo start.\n");
     printk("\tsyn %d ack %d\n", tcp_hdr(skb) -> syn, tcp_hdr(skb) -> ack);
     printk("\tsport %d dport %d\n", ntohs(tcp_hdr(skb) -> source), ntohs(tcp_hdr(skb) -> dest));
     printk("\tsip %u dip %u\n", ntohl(ip_hdr(skb) -> saddr), ntohl(ip_hdr(skb) -> daddr));
-    printk("\trkpSettings_request %d\n", rkpSettings_request(skb));
     printk("\tid %u %u %u", rkps -> id[0], rkps -> id[1], rkps -> id[2]);
 #endif
-    bool rtn;
-    if(rkpSettings_request(skb))
-    {
-        if(rkps -> id[0] != ntohl(ip_hdr(skb) -> saddr))
-            rtn = false;
-        if(rkps -> id[1] != ntohl(ip_hdr(skb) -> daddr))
-            rtn = false;
-        if(rkps -> id[2] != (((u_int32_t)ntohs(tcp_hdr(skb) -> source)) << 16) + ntohs(tcp_hdr(skb) -> dest))
-            rtn = false;
-        rtn = true;
-    }
-    else
-    {
-        if(rkps -> id[0] != ntohl(ip_hdr(skb) -> daddr))
-            rtn = false;
-        if(rkps -> id[1] != ntohl(ip_hdr(skb) -> saddr))
-            rtn = false;
-        if(rkps -> id[2] != (((u_int32_t)ntohs(tcp_hdr(skb) -> dest)) << 16) + ntohs(tcp_hdr(skb) -> source))
-            rtn = false;
-        rtn = true;
-    }
+    bool rtn = rkps -> id[0] == ntohl(ip_hdr(skb) -> saddr)
+            && rkps -> id[1] == ntohl(ip_hdr(skb) -> daddr)
+            && rkps -> id[2] == (((u_int32_t)ntohs(tcp_hdr(skb) -> source)) << 16) + ntohs(tcp_hdr(skb) -> dest);
 #ifdef RKP_DEBUG
     printk("rkp-ua: rkpStream_belongTo end, will return %d.\n", rtn);
 #endif
@@ -163,7 +123,7 @@ unsigned rkpStream_execute(struct rkpStream* rkps, struct sk_buff* skb)
     
     // 接下来从小到大考虑数据包的序列号的几种情况
     // 已经发出的数据包，直接忽略
-    if(int32_t(rkpPacket_seq(p) - rkps -> seq_offset) < 0)
+    if(rkpPacket_seq(p) - rkps -> seq_offset < 0)
     {
 #ifdef RKP_DEBUG
         printk("\tsent packet judged.\n");
@@ -172,7 +132,7 @@ unsigned rkpStream_execute(struct rkpStream* rkps, struct sk_buff* skb)
         return NF_ACCEPT;
     }
     // 已经放到 buff_scan 中的数据包，丢弃
-    if(int32_t(rkpPacket_seq(p) - rkps -> seq_offset) < __rkpStream_seq_scanEnd(rkps))
+    if(rkpPacket_seq(p) - rkps -> seq_offset < __rkpStream_seq_scanEnd(rkps))
     {
 #ifdef RKP_DEBUG
         printk("\tcaptured packet judged.\n");
@@ -182,12 +142,12 @@ unsigned rkpStream_execute(struct rkpStream* rkps, struct sk_buff* skb)
     }
     // 恰好是 buff_scan 的后继数据包，这种情况比较麻烦，写到最后
     // 乱序导致还没接收到前继的数据包，放到 buff_disordered
-    if(int32_t(rkpPacket_seq(p) - rkps -> seq_offset) > __rkpStream_seq_scanEnd(rkps))
+    if(rkpPacket_seq(p) - rkps -> seq_offset > __rkpStream_seq_scanEnd(rkps))
     {
 #ifdef RKP_DEBUG
         printk("\tdisordered packet judged.\n");
 #endif
-        __rkpStream_insert_auto(&(rkps -> buff_disordered), p);
+        __rkpStream_insert_auto(rkps, &(rkps -> buff_disordered), p);
         return NF_STOLEN;
     }
 
@@ -204,7 +164,7 @@ unsigned rkpStream_execute(struct rkpStream* rkps, struct sk_buff* skb)
 #endif
         // 丢到 buff_scan 里
         __rkpStream_insert_end(rkps, &(rkps -> buff_scan), p);
-        if(__rkpStream_scan(rkps, p, str_head_end))     // 扫描到了
+        if(__rkpStream_scan(rkps, p))     // 扫描到了
         {
 #ifdef RKP_DEBUG
             printk("\t\t\thttp head end matched.\n");
@@ -212,7 +172,8 @@ unsigned rkpStream_execute(struct rkpStream* rkps, struct sk_buff* skb)
             // 替换 ua
             __rkpStream_modify(rkps);
             // 发出数据包，注意最后一个不发，等会儿 accept 就好
-            for(struct rkpPacket* p = rkps -> buff_scan; p != 0 && p -> next != 0;)
+            struct rkpPacket* p;
+            for(p = rkps -> buff_scan; p != 0 && p -> next != 0;)
             {
                 struct rkpPacket* p2 = p;
                 p = p -> next;
@@ -245,7 +206,8 @@ unsigned rkpStream_execute(struct rkpStream* rkps, struct sk_buff* skb)
 #ifdef RKP_DEBUG
                 printk("rkp-ua: rkpStream_execute: psh found before http head end.\n");
 #endif
-                for(struct rkpPacket* p = rkps -> buff_scan; p != 0 && p -> next != 0;)
+                struct rkpPacket* p;
+                for(p = rkps -> buff_scan; p != 0 && p -> next != 0;)
                 {
                     struct rkpPacket* p2 = p;
                     p = p -> next;
@@ -315,242 +277,294 @@ unsigned rkpStream_execute(struct rkpStream* rkps, struct sk_buff* skb)
     }
     
     return rtn;
-    }
 }
 
-u_int16_t __rkpStream_data_scan(const unsigned char* data, u_int16_t data_len, const unsigned char* target, u_int8_t matched)
+int32_t __rkpStream_seq_scanEnd(struct rkpStream* rkps)
 {
-    const unsigned char* p = data;
-    while(p - data != data_len)
-    {
-        if(*p == target[matched])
-            matched++;
-        else
-            matched = 0;
-        if(matched == strlen(target))
-            return (((u_int16_t)(p - data) << 1)) | 0x1;
-        else
-            p++;
-    }
-    return matched << 1;
-}
-void __rkpStream_data_replace(unsigned char* data, u_int16_t data_len, const unsigned char* target, u_int16_t modified)
-{
-    while(modified < strlen(target) && data_len > 0)
-    {
-        *data = target[modified];
-        data++;
-        data_len--;
-        modified++;
-    }
-    if(data_len > 0)
-        memset(data, ' ', data_len);
-}
-
-void __rkpStream_buff_retain_end(struct sk_buff** buff, struct sk_buff* skb)
-{
-    struct sk_buff* p = *buff;
-    if(p == 0)
-    {
-        *buff = skb;
-        skb -> next = 0;
-        skb -> prev = 0;
-    }
-    else
-    {
-        while(p -> next != 0)
-            p = p -> next;
-        p -> next = skb;
-        skb -> next = 0;
-        skb -> prev = p;
-    }
-}
-void __rkpStream_buff_retain_auto(struct sk_buff** buff, struct sk_buff* skb)
-{
-    struct sk_buff* p = __rkpStream_buff_find(*buff, ntohl(tcp_hdr(skb) -> seq));
-    if(p == 0)
-    {
-        skb -> prev = 0;
-        skb -> next = *buff;
-        *buff = skb;
-        if(skb -> next != 0)
-            skb -> next -> prev = skb;
-    }
-    else if(ntohl(tcp_hdr(p) -> seq) == ntohl(tcp_hdr(skb) -> seq))
-    {
-        if(p -> prev != 0)
-            p -> prev -> next = skb;
-        if(p -> next != 0)
-            p -> next -> prev = skb;
-        skb -> prev = p -> prev;
-        skb -> next = p -> next;
-        if(*buff == p)
-            *buff = skb;
-        __rkpStream_skb_del(p);
-    }
-    else
-    {
-        if(p -> next != 0)
-            p -> next -> prev = skb;
-        skb -> next = p -> next;
-        p -> next = skb;
-        skb -> prev = p;
-    }
-}
-
-struct sk_buff* __rkpStream_buff_find(const struct sk_buff* skb, u_int32_t seq)
-{
-    if(skb == 0)
+    struct rkpPacket* rkpp = rkps -> buff_scan;
+    if(rkpp == 0)
         return 0;
     else
-    {
-        while(skb -> next != 0 && __rkpStream_skb_seq(seq, ntohl(tcp_hdr(skb -> next) -> seq)) <= 0)
-            skb = (const struct sk_buff*)skb -> next;
-        return (struct sk_buff*)skb;
-    }
+        for(; ; rkpp = rkpp -> next)
+            if(rkpp -> next == 0)
+                return rkpPacket_seq(rkpp) - rkps -> seq_offset + rkpPacket_appLen(rkpp);
+    
 }
 
-void __rkpStream_buff_execute_core(struct sk_buff** buff, u_int16_t last_pos, bool preserve)
-// 扫描是否有 ua，然后扫描 ua 中是否有匹配的字符串，并且进行修改
+void __rkpStream_insert_auto(struct rkpStream* rkps, struct rkpPacket** buff, struct rkpPacket* p)
 {
-    u_int16_t rtn;
-    struct sk_buff* p;
-    unsigned i;
-
-    struct sk_buff *skb_ua_begin, *skb_ua_end;
-    u_int16_t pos_ua_begin, pos_ua_end;
-
 #ifdef RKP_DEBUG
-    printk("__rkpStream_buff_execute_core\n");
-    printk("\tlast_pos %u\n", last_pos);
-    printk("\tpreserve %d\n", preserve);
-    printk("\tstart find ua start.\n");
+    printk("rkp-ua: __rkpStream_insert_auto start.\n");
 #endif
-
-    // 寻找 ua 开始的位置
-    for(p = *buff, rtn = 0; p != 0; p = p -> next)
+    // 如果链表是空的，那么就直接加进去
+    if(*buff == 0)
     {
 #ifdef RKP_DEBUG
-        printk("\tfind a packet.\n");
+        printk("rkp-ua: __rkpStream_insert_auto: empty buff.\n");
 #endif
-        if(p -> next == 0)
-            rtn = __rkpStream_data_scan(__rkpStream_skb_appBegin(p), last_pos + 1, str_ua_begin, rtn >> 1);
-        else
-            rtn = __rkpStream_data_scan(__rkpStream_skb_appBegin(p), __rkpStream_skb_appLen(p), str_ua_begin, rtn >> 1);
-        if(rtn & 0x1)
-            break;
+        *buff = p;
+        p -> prev = p -> next = 0;
     }
-    if(rtn & 0x1)
-    // 找到了
+    // 又或者，要插入的包需要排到第一个，或者和第一个序列号重复了
+    else if(rkpPacket_seq(*buff) - rkps -> seq_offset >= rkpPacket_seq(p) - rkps -> seq_offset)
     {
-#ifdef RKP_DEBUG
-        printk("\tfound.\n");
-#endif
-        skb_ua_begin = p;
-        pos_ua_begin = (rtn >> 1) + 1;
-    }
-    else
-    // 没找到
-    {
-#ifdef RKP_DEBUG
-        printk("\tfound.\n");
-#endif
-        return;
-    }
-
-    // 寻找 ua 结束的位置
-    for(rtn = 0; p != 0; p = p -> next)
-    {
-        if(p == skb_ua_begin)
+        if(rkpPacket_seq(*buff) - rkps -> seq_offset == rkpPacket_seq(p) - rkps -> seq_offset)
         {
-            rtn = __rkpStream_data_scan(__rkpStream_skb_appBegin(p) + pos_ua_begin, __rkpStream_skb_appLen(p) - pos_ua_begin, str_ua_end, rtn >> 1);
-            // 这时得到的 rtn 是相对于扫描开始处的位置，因此如果确认扫描到了结尾，就需要再加上相对于应用层开始处的偏移
-            if(rtn & 0x01)
-                rtn += pos_ua_begin << 1;
+#ifdef RKP_DEBUG
+            printk("rkp-ua: __rkpStream_insert_auto: same seq. Drop it.\n");
+#endif
+            rkpPacket_drop(p);
         }
         else
-            rtn = __rkpStream_data_scan(__rkpStream_skb_appBegin(p), __rkpStream_skb_appLen(p), str_ua_end, rtn >> 1);
-        if(rtn & 0x1)
-            break;
+        {
+            (*buff) -> prev = p;
+            p -> next = *buff;
+            p -> prev = 0;
+            *buff = p;
+        }
     }
-    if(!(rtn & 0x01))
+    // 接下来寻找最后一个序列号不比 p 大的包，插入到它的后面或者丢掉。
+    else
     {
-        printk("rkp-ua::rkpStream::__rkpStream_buff_execute_core: UA end not found. Accept without modification.\n");
-        return;
+        struct rkpPacket* p2 = *buff;
+        while(p2 -> next != 0 && rkpPacket_seq(p2 -> next) - rkps -> seq_offset <= rkpPacket_seq(p) - rkps -> seq_offset)
+            p2 = p2 -> next;
+        if(rkpPacket_seq(p2) - rkps -> seq_offset == rkpPacket_seq(p) - rkps -> seq_offset)
+        {
+#ifdef RKP_DEBUG
+            printk("rkp-ua: __rkpStream_insert_auto: same seq. Drop it.\n");
+#endif
+            rkpPacket_drop(p);
+        }
+        else
+        {
+            p -> next = p2 -> next;
+            p -> prev = p2;
+            if(p -> next != 0)
+                p -> next -> prev = p;
+            p2 -> next = p;
+        }
     }
-    // 肯定是可以找到结束位置的。
-    // 如果找到的结束位置在靠近应用层数据开头的位置，那么真实的结束位置应该在上一个数据包
-    if((rtn >> 1) < strlen(str_ua_end))
+#ifdef RKP_DEBUG
+    printk("rkp-ua: __rkpStream_insert_auto end.\n");
+#endif
+}
+void __rkpStream_insert_end(struct rkpStream* rkps, struct rkpPacket** buff, struct rkpPacket* p)
+{
+#ifdef RKP_DEBUG
+    printk("rkp-ua: __rkpStream_insert_end start.\n");
+#endif
+    if(*buff == 0)
     {
-        skb_ua_end = p -> prev;
-        pos_ua_end = __rkpStream_skb_appLen(skb_ua_end) - (strlen(str_ua_end) - (rtn >> 1) - 1) - 1;
+        *buff = p;
+        p -> next = p -> prev = 0;
     }
     else
     {
-        skb_ua_end = p;
-        pos_ua_end = (rtn >> 1) - strlen(str_ua_end);
+        struct rkpPacket* p2 = *buff;
+        while(p2 -> next != 0)
+            p2 = p2 -> next;
+        p2 -> next = p;
+        p -> prev = p2;
+        p -> next = 0;
     }
+#ifdef RKP_DEBUG
+    printk("rkp-ua: __rkpStream_insert_end end.\n");
+#endif
+}
 
-    // 检查 ua 是否需要忽略，如果需要忽略就忽略
-    if(preserve)
-        for(i = 0; i < n_str_preserve; i++)
+bool __rkpStream_scan(struct rkpStream* rkps, struct rkpPacket* rkpp)
+{
+#ifdef RKP_DEBUG
+    printk("rkp-ua: __rkpStream_scan start.\n");
+#endif
+    unsigned char* p;
+    for(p = rkpPacket_appBegin(rkpp); p != rkpPacket_appEnd(rkpp); p++)
+    {
+        if(*p == str_head_end[rkps -> scan_matched])
+            rkps -> scan_matched++;
+        else
+            rkps -> scan_matched = 0;
+        if(rkps -> scan_matched == strlen(str_head_end))
         {
-            for(p = skb_ua_begin, rtn = 0;;p = p -> next)
+            rkps -> scan_matched = 0;
+#ifdef RKP_DEBUG
+            printk("rkp-ua: __rkpStream_scan: head end found.\n");
+            printk("rkp-ua: __rkpStream_scan end.\n");
+#endif
+            return true;
+        }
+    }
+#ifdef RKP_DEBUG
+    printk("rkp-ua: __rkpStream_scan: head end not found.\n");
+    printk("rkp-ua: __rkpStream_scan end.\n");
+#endif
+    return false;
+}
+void __rkpStream_modify(struct rkpStream* rkps)
+{
+#ifdef RKP_DEBUG
+    printk("rkp-ua: __rkpStream_modify start.\n");
+#endif
+    unsigned ua_begin_matched = 0, ua_end_matched = 0, head_end_matched = 0, *keyword_matched, ua_relplaced = 0;
+    unsigned char *ua_begin_p, *ua_end_p;
+    struct rkpPacket *ua_begin_rkpp, *ua_end_rkpp, *rkpp = rkps -> buff_scan;
+
+    // 匹配 "User-Agent: " 的阶段
+    for(;rkpp != 0 && ua_begin_matched != strlen(str_ua_begin); rkpp = rkpp -> next)
+    {
+        unsigned char* p;
+        for(p = rkpPacket_appBegin(rkpp); p != rkpPacket_appEnd(rkpp); p++)
+        {
+            // 检查匹配 http 头结尾的情况
+            if(*p == str_head_end[head_end_matched])
+                head_end_matched++;
+            else
+                head_end_matched = 0;
+            if(head_end_matched == strlen(str_head_end))
             {
-                const unsigned char* scan_begin;
-                u_int16_t scan_len;
-                if(p == skb_ua_begin)
-                    scan_begin = __rkpStream_skb_appBegin(p) + pos_ua_begin;
+#ifdef RKP_DEBUG
+                printk("rkp-ua: __rkpStream_modify: ua not found.\n");
+                printk("rkp-ua: __rkpStream_scan end.\n");
+#endif
+                return;
+            }
+
+            // 检查匹配 "User-Agent: " 的情况
+            if(*p == str_ua_begin[ua_begin_matched])
+                ua_begin_matched++;
+            else
+                ua_begin_matched = 0;
+            if(ua_end_matched == strlen(str_ua_begin))
+            {
+#ifdef RKP_DEBUG
+                printk("rkp-ua: __rkpStream_modify: ua found.\n");
+#endif
+                // 如果是这个包中最后一个字节了，那么跳到下一个包的第一个字节；否则，移动到下一个字节
+                if(p == rkpPacket_appEnd(rkpp) - 1)
+                {
+                    rkpp = rkpp -> next;
+                    p = rkpPacket_appBegin(rkpp);
+                }
                 else
-                    scan_begin = __rkpStream_skb_appBegin(p);
-                if(p == skb_ua_end)
-                    scan_len = (__rkpStream_skb_appBegin(p) + pos_ua_end) - scan_begin + 1;
-                else
-                    scan_len = (__rkpStream_skb_appBegin(p) + __rkpStream_skb_appLen(p) - 1) - scan_begin + 1;
-                rtn = __rkpStream_data_scan(scan_begin, scan_len, str_preserve[i], rtn >> 1);
-                if(rtn & 0x1)
-                    return;
-                if(p == skb_ua_end)
-                    break;
+                    p++;
+                // 将结果记录进去
+                ua_begin_rkpp = rkpp;
+                ua_begin_p = p;
+                break;
             }
         }
-
-#ifdef RKP_DEBUG
-    printk("\tstr_ua_rkp %s\n", str_ua_rkp);
-    printk("\tskb_ua_end - skb_ua_begin %d\n", skb_ua_end - skb_ua_begin);
-    printk("\tpos_ua_end %d pos_ua_begin %d\n", pos_ua_end, pos_ua_begin);
-    // return;
-#endif
+    }
     
-    // 替换 ua
-    for(p = skb_ua_begin, rtn = 0;;p = p -> next)
+    // 匹配 "\r\n" 和需要忽略的关键字的阶段
+    keyword_matched = rkpMalloc(n_str_preserve * sizeof(unsigned));
+    memset(keyword_matched, 0, n_str_preserve * sizeof(unsigned));
+    for(;rkpp != 0 && ua_end_matched != strlen(str_ua_end); rkpp = rkpp -> next)
     {
-        unsigned char* replace_begin;
-        u_int16_t replace_len;
-        if(skb_ensure_writable(p, __rkpStream_skb_appBegin(p) + __rkpStream_skb_appLen(p) - p -> data) != 0)
+        unsigned char* p;
+        for(p = ua_begin_p; p != rkpPacket_appEnd(rkpp); p++)
         {
-            printk("rkp-ua::rkpStream::__rkpStream_buff_execute_core: Can not make skb writable, may caused by shortage of memory. Ignore it.\n");
-            return;
+            // 检查匹配 "\r\n" 的情况
+            if(*p == str_head_end[ua_end_matched])
+                ua_end_matched++;
+            else
+                ua_end_matched = 0;
+            if(ua_end_matched == strlen(str_ua_end))
+            {
+#ifdef RKP_DEBUG
+                printk("rkp-ua: __rkpStream_modify: ua end found.\n");
+#endif
+                // 如果在某个包的开头几个字节匹配结束（即 ua 实际上全部位于上一个包），就返回去
+                if(p + 1 - rkpPacket_appBegin(rkpp) <= strlen(str_ua_end))
+                {
+                    unsigned temp = strlen(str_ua_end) - (p + 1 - rkpPacket_appBegin(rkpp));    // str_ua_end 位于上一个包中的长度
+                    rkpp = rkpp -> prev;
+                    p = rkpPacket_appEnd(rkpp) - temp;
+                }
+                // 否则，回退到 ua 结束的位置
+                else
+                    p += 1 - strlen(str_ua_end);
+                // 记录结果
+                ua_end_rkpp = rkpp;
+                ua_end_p = p;
+                // 记得删掉不用的内存
+                rkpFree(keyword_matched);
+                break;
+            }
+
+            // 检查匹配需要忽略的关键字的情况
+            unsigned i;
+            for(i = 0; i < n_str_preserve; i++)
+            {
+                if(*p == str_preserve[i][keyword_matched[i]])
+                    keyword_matched[i]++;
+                else
+                    keyword_matched[i] = 0;
+                if(keyword_matched[i] == strlen(str_preserve[i]))
+                {
+#ifdef RKP_DEBUG
+                    printk("rkp-ua: __rkpStream_modify: keyword %s matched.\n", str_preserve[i]);
+                    printk("rkp-ua: __rkpStream_scan end.\n");
+#endif
+                    rkpFree(keyword_matched);
+                    return;
+                }
+            }
         }
-        if(p == skb_ua_begin)
-            replace_begin = __rkpStream_skb_appBegin(p) + pos_ua_begin;
+    }
+
+    // 已经获得了所需要的信息并且确认 ua 需要替换，然后替换 ua 的阶段
+    // 先全部 writeable
+    for(rkpp = ua_begin_rkpp; ; rkpp = rkpp -> next)
+    {
+        if(rkpp == ua_begin_rkpp && rkpp == ua_end_rkpp)
+        {
+            unsigned temp = ua_begin_p - rkpPacket_appBegin(rkpp);
+            if(!rkpPacket_makeWriteable(rkpp))
+                return;
+            ua_end_p = rkpPacket_appBegin(rkpp) + temp + (ua_end_p - ua_begin_p);
+            ua_begin_p = rkpPacket_appBegin(rkpp) + temp;
+            break;
+        }
+        else if(rkpp == ua_begin_rkpp)
+        {
+            unsigned temp = ua_begin_p - rkpPacket_appBegin(rkpp);
+            if(!rkpPacket_makeWriteable(rkpp))
+                return;
+            ua_begin_p = rkpPacket_appBegin(rkpp) + temp;
+        }
+        else if(rkpp == ua_end_rkpp)
+        {
+            unsigned temp = ua_end_p - rkpPacket_appBegin(rkpp);
+            if(!rkpPacket_makeWriteable(rkpp))
+                return;
+            ua_end_p = rkpPacket_appBegin(rkpp) + temp;
+            break;
+        }
         else
-            replace_begin = __rkpStream_skb_appBegin(p);
-        if(p == skb_ua_end)
-            replace_len = (__rkpStream_skb_appBegin(p) + pos_ua_end) - replace_begin + 1;
+            if(!rkpPacket_makeWriteable(rkpp))
+                return;
+    }
+    // 然后放心大胆地替换字符串
+    for(rkpp = ua_begin_rkpp; ; rkpp = rkpp -> next)
+    {
+        unsigned char* p;
+        if(rkpp == ua_begin_rkpp)
+            p = ua_begin_p;
         else
-            replace_len = (__rkpStream_skb_appBegin(p) + __rkpStream_skb_appLen(p) - 1) - replace_begin + 1;
-#ifdef RKP_DEBUG
-    printk("\treplace_begin - appBegin %d\n", replace_begin - __rkpStream_skb_appBegin(p));
-    printk("\treplace_len %d\n", replace_len);
-#endif
-        __rkpStream_data_replace(replace_begin, replace_len, str_ua_rkp, rtn);
-#ifdef RKP_DEBUG
-    printk("\tafter replace, data is %c%c%c%c%c\n", replace_begin[0], replace_begin[1], replace_begin[2], replace_begin[3], replace_begin[4]);
-#endif
-        __rkpStream_skb_csum(p);
-        rtn += replace_len;
-        if(p == skb_ua_end)
+            p = rkpPacket_appBegin(rkpp);
+        for(; p != rkpPacket_appEnd(rkpp) && p != ua_end_p; p++)
+        {
+            if(ua_relplaced < strlen(str_ua_rkp))
+                *p = str_ua_rkp[ua_relplaced];
+            else
+                *p = ' ';
+            ua_relplaced++;
+        }
+        if(rkpp == ua_end_rkpp)
             break;
     }
+    // 重新计算校验和
+    for(rkpp = ua_begin_rkpp; rkpp != 0 && rkpp -> prev != ua_end_rkpp; rkpp = rkpp -> next)
+        rkpPacket_csum(rkpp);
 }
