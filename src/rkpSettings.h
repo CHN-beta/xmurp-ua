@@ -24,8 +24,8 @@ bool rkpSettings_capture(const struct sk_buff* skb)
 {
 
 #ifdef RKP_DEBUG
-    if(ntohl(ip_hdr(skb) -> daddr) != (216 << 24) + (24 << 16) + (178 << 8) + 192 && ntohl(ip_hdr(skb) -> saddr) != (216 << 24) + (24 << 16) + (178 << 8) + 192)
-        return false;
+    // if(ntohl(ip_hdr(skb) -> daddr) != (216 << 24) + (24 << 16) + (178 << 8) + 192 && ntohl(ip_hdr(skb) -> saddr) != (216 << 24) + (24 << 16) + (178 << 8) + 192)
+    //    return false;
 #endif
 
     if(!autocapture)

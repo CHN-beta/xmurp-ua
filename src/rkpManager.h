@@ -5,32 +5,33 @@ struct rkpManager
 {
     struct rkpStream* data[256];        // 按照首包的两端口之和的低 8 位放置
     time_t last_active;
-    struct mutex* lock;         // 线程锁，这个需要外部静态地生成后，把指针传进来
+    spinlock_t lock;         // 线程锁
 };
 
-struct rkpManager* rkpManager_new(struct mutex*);
+struct rkpManager* rkpManager_new(void);
 void rkpManager_delete(struct rkpManager*);
 
-u_int8_t rkpManager_execute(struct rkpManager*, struct sk_buff*);   // 处理一个数据包。返回值为 rkpStream_execute 的返回值。
+int rkpManager_execute(struct rkpManager*, struct sk_buff*);   // 处理一个数据包。返回值为 rkpStream_execute 的返回值。
+int __rkpManager_execute(struct rkpManager*, struct sk_buff*);
 void rkpManager_refresh(struct rkpManager*);  // 清理过时的流
 
-void __rkpManager_lock(struct rkpManager*);
-void __rkpManager_unlock(struct rkpManager*);
+void __rkpManager_lock(struct rkpManager*, unsigned long*);
+void __rkpManager_unlock(struct rkpManager*, unsigned long);
 
-struct rkpManager* rkpManager_new(struct mutex* lock)
+struct rkpManager* rkpManager_new(void)
 {
-    struct rkpManager* rkpm = rkpMalloc(sizeof(struct rkpStream));
+    struct rkpManager* rkpm = rkpMalloc(sizeof(struct rkpManager));
     if(rkpm == 0)
         return 0;
     memset(rkpm -> data, 0, sizeof(struct rkpStream*) * 256);
-    rkpm -> lock = lock;
-    mutex_init(rkpm -> lock);
+    spin_lock_init(&rkpm -> lock);
     return rkpm;
 }
 void rkpManager_delete(struct rkpManager* rkpm)
 {
-    // __rkpManager_lock(rkpm);
     unsigned i;
+    unsigned long flag;
+    __rkpManager_lock(rkpm, &flag);
     for(i = 0; i < 256; i++)
     {
         struct rkpStream* rkps = rkpm -> data[i];
@@ -41,19 +42,27 @@ void rkpManager_delete(struct rkpManager* rkpm)
             rkps = rkps2;
         }
     }
-    // __rkpManager_unlock(rkpm);
+    __rkpManager_unlock(rkpm, flag);
     rkpFree(rkpm);
 }
 
-u_int8_t rkpManager_execute(struct rkpManager* rkpm, struct sk_buff* skb)
+int rkpManager_execute(struct rkpManager* rkpm, struct sk_buff* skb)
+{
+    unsigned long flag;
+    int rtn;
+    __rkpManager_lock(rkpm, &flag);
+    rtn = __rkpManager_execute(rkpm, skb);
+    __rkpManager_unlock(rkpm, flag);
+    return rtn;
+}
+int __rkpManager_execute(struct rkpManager* rkpm, struct sk_buff* skb)
 {
 #ifdef RKP_DEBUG
     printk("rkp-ua: rkpManager_execute start.\n");
     printk("\tsyn %d ack %d\n", tcp_hdr(skb) -> syn, tcp_hdr(skb) -> ack);
-    printk("\tsport %d dport %d\n", tcp_hdr(skb) -> source, tcp_hdr(skb) -> dest);
+    printk("\tsport %d dport %d\n", ntohs(tcp_hdr(skb) -> source), ntohs(tcp_hdr(skb) -> dest));
     printk("\tid %d\n", (ntohs(tcp_hdr(skb) -> source) + ntohs(tcp_hdr(skb) -> dest)) & 0xFF);
 #endif
-    __rkpManager_lock(rkpm);
     rkpm -> last_active = now();
     if(rkpSettings_first(skb))
     // 新增加一个流或覆盖已经有的流
@@ -87,12 +96,20 @@ u_int8_t rkpManager_execute(struct rkpManager* rkpm, struct sk_buff* skb)
 
         // 插入新的流
         if(rkpm -> data[id] == 0)
+        {
             rkpm -> data[id] = rkps_new;
+#ifdef RKP_DEBUG
+            printk("rkpManager_execute: add a new stream %d to an empty list.\n", id);
+#endif
+        }
         else
         {
             rkpm -> data[id] -> prev = rkps_new;
             rkps_new -> next = rkpm -> data[id];
             rkpm -> data[id] = rkps_new;
+#ifdef RKP_DEBUG
+            printk("rkpManager_execute: add a new stream %d to an unempty list.\n", id);
+#endif
         }
 
         return NF_ACCEPT;
@@ -103,11 +120,16 @@ u_int8_t rkpManager_execute(struct rkpManager* rkpm, struct sk_buff* skb)
         u_int8_t id = (ntohs(tcp_hdr(skb) -> source) + ntohs(tcp_hdr(skb) -> dest)) & 0xFF;
         struct rkpStream* rkps = rkpm -> data[id];
 #ifdef RKP_DEBUG
-        printk("rkpStream_belong %d\n", (int)rkpStream_belongTo(rkps, skb));
+        printk("rkpStream_execute id %d\n", id);
 #endif
         while(rkps != 0)
             if(rkpStream_belongTo(rkps, skb))
+            {
+#ifdef RKP_DEBUG
+                printk("rkp-ua::rkpStream::rkpStream_execute: Target stream %u found.\n", id);
+#endif
                 return rkpStream_execute(rkps, skb);
+            }
             else
                 rkps = rkps -> next;
         printk("rkp-ua::rkpStream::rkpStream_execute: Target stream %u not found.\n", id);
@@ -119,6 +141,8 @@ void rkpManager_refresh(struct rkpManager* rkpm)
 {
     time_t n = now();
     unsigned i;
+    unsigned long flag;
+    __rkpManager_lock(rkpm, &flag);
     for(i = 0; i < 256; i++)
     {
         struct rkpStream* rkps = rkpm -> data[i];
@@ -138,13 +162,14 @@ void rkpManager_refresh(struct rkpManager* rkpm)
             else
                 rkps = rkps -> next;
     }
+    __rkpManager_unlock(rkpm, flag);
 }
 
-void __rkpManager_lock(struct rkpManager* rkpm)
+void __rkpManager_lock(struct rkpManager* rkpm, unsigned long* flagp)
 {
-    mutex_lock(rkpm -> lock);
+    spin_lock_irqsave(&rkpm -> lock, *flagp);
 }
-void __rkpManager_unlock(struct rkpManager* rkpm)
+void __rkpManager_unlock(struct rkpManager* rkpm, unsigned long flag)
 {
-    mutex_unlock(rkpm -> lock);
+    spin_unlock_irqrestore(&rkpm -> lock, flag);
 }

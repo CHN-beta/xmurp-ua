@@ -28,6 +28,7 @@ int32_t __rkpStream_seq_scanEnd(struct rkpStream*);         // 返回 buff_scan 
 
 void __rkpStream_insert_auto(struct rkpStream*, struct rkpPacket**, struct rkpPacket*);     // 在指定链表中插入一个节点
 void __rkpStream_insert_end(struct rkpStream*, struct rkpPacket**, struct rkpPacket*);
+struct rkpPacket* __rkpStream_pop_end(struct rkpStream*, struct rkpPacket**);
 
 bool __rkpStream_scan(struct rkpStream*, struct rkpPacket*);  // 在包的应用层搜索 ua 头的结尾
 void __rkpStream_modify(struct rkpStream*);         // 在已经收集到完整的 HTTP 头后，调用去按规则修改 buff_scan 中的包
@@ -153,7 +154,11 @@ unsigned rkpStream_execute(struct rkpStream* rkps, struct sk_buff* skb)
 
     // 接下来是恰好是 buff_scan 的后继数据包的情况，先分状态讨论，再一起考虑 buff_disordered 中的包
 #ifdef RKP_DEBUG
-        printk("\tdesired packet judged.\n");
+    printk("\tdesired packet judged.\n");
+    unsigned char* temp = rkpMalloc((rkpPacket_appLen(p) + 1) * sizeof(unsigned char));
+    memcpy(temp, rkpPacket_appBegin(p), rkpPacket_appLen(p));
+    temp[rkpPacket_appLen(p)] = 0;
+    printk("\tpacket content: %s\n", temp);
 #endif
     unsigned rtn;
     // 如果是在 sniffing 的情况下，那一定先丢到 buff_scan 里，然后扫描一下看结果，重新设定状态
@@ -162,8 +167,8 @@ unsigned rkpStream_execute(struct rkpStream* rkps, struct sk_buff* skb)
 #ifdef RKP_DEBUG
         printk("\t\tsniffing.\n");
 #endif
-        // 丢到 buff_scan 里
-        __rkpStream_insert_end(rkps, &(rkps -> buff_scan), p);
+        // 丢到 buff_scan 里，记得一会儿如果要 accept，还要拿出来，以及更新序列号
+        __rkpStream_insert_end(rkps, &rkps -> buff_scan, p);
         if(__rkpStream_scan(rkps, p))     // 扫描到了
         {
 #ifdef RKP_DEBUG
@@ -177,10 +182,9 @@ unsigned rkpStream_execute(struct rkpStream* rkps, struct sk_buff* skb)
             {
                 struct rkpPacket* p2 = p;
                 p = p -> next;
-                rkps -> seq_offset = rkpPacket_seq(p2) + rkpPacket_appLen(p2);  // 别忘了更新偏移
+                // rkps -> seq_offset = rkpPacket_seq(p2) + rkpPacket_appLen(p2); 不需要更新偏移，因为最后一个包等会儿 accept 的时候会更新
                 rkpPacket_send(p2);
             }
-            rkps -> buff_scan = 0;
             // 设定状态为等待
             rkps -> status = __rkpStream_waiting;
             // accept
@@ -189,7 +193,7 @@ unsigned rkpStream_execute(struct rkpStream* rkps, struct sk_buff* skb)
         // 没有扫描到，那么 stolen
         else
         {
-            if(rkpPacket_psh(p))    // 如果同时没有 psh，就偷走
+            if(!rkpPacket_psh(p))    // 如果同时没有 psh，就偷走
                 rtn = NF_STOLEN;
 #ifdef RKP_DEBUG
             printk("\t\t\thttp head end not matched.\n");
@@ -221,12 +225,18 @@ unsigned rkpStream_execute(struct rkpStream* rkps, struct sk_buff* skb)
             // 只要有 psh，肯定接受
             rtn = NF_ACCEPT;
         }
+        if(rtn == NF_ACCEPT)        // 记得再 pop 出来！
+        {
+            __rkpStream_pop_end(rkps, &rkps -> buff_scan);
+            rkps -> seq_offset = rkpPacket_seq(p) + rkpPacket_appLen(p);
+        }
     }
     else    // waiting 的状态，检查 psh、设置序列号偏移、然后放行就可以了
     {
 #ifdef RKP_DEBUG
         printk("\t\tsniffing.\n");
 #endif
+        rkps -> seq_offset = rkpPacket_seq(p) + rkpPacket_appLen(p);
         if(rkpPacket_psh(p))
             rkps -> status = __rkpStream_sniffing;
         rtn = NF_ACCEPT;
@@ -372,6 +382,31 @@ void __rkpStream_insert_end(struct rkpStream* rkps, struct rkpPacket** buff, str
     printk("rkp-ua: __rkpStream_insert_end end.\n");
 #endif
 }
+struct rkpPacket* __rkpStream_pop_end(struct rkpStream* rkps, struct rkpPacket** buff)
+{
+#ifdef RKP_DEBUG
+    printk("rkp-ua: __rkpStream_pop_end start.\n");
+#endif
+    if(*buff == 0)
+    {
+        printk("__rkpStream_pop_end: pop from an empty list.\n");
+        return 0;
+    }
+    else
+    {
+        struct rkpPacket* rkpp;
+        for(rkpp = *buff; rkpp -> next != 0; rkpp = rkpp -> next);
+        if(rkpp -> prev == 0)
+            *buff = 0;
+        else
+            rkpp -> prev = rkpp -> prev -> next = 0;
+        return rkpp;
+    }
+#ifdef RKP_DEBUG
+    printk("rkp-ua: __rkpStream_insert_end end.\n");
+#endif
+}
+
 
 bool __rkpStream_scan(struct rkpStream* rkps, struct rkpPacket* rkpp)
 {
@@ -381,6 +416,9 @@ bool __rkpStream_scan(struct rkpStream* rkps, struct rkpPacket* rkpp)
     unsigned char* p;
     for(p = rkpPacket_appBegin(rkpp); p != rkpPacket_appEnd(rkpp); p++)
     {
+#ifdef RKP_DEBUG
+        printk("rkp-ua: __rkpStream_scan matching %c.\n", *p);
+#endif
         if(*p == str_head_end[rkps -> scan_matched])
             rkps -> scan_matched++;
         else
@@ -411,14 +449,25 @@ void __rkpStream_modify(struct rkpStream* rkps)
     struct rkpPacket *ua_begin_rkpp, *ua_end_rkpp, *rkpp = rkps -> buff_scan;
 
     // 匹配 "User-Agent: " 的阶段
+#ifdef RKP_DEBUG
+    printk("matching User-Agent: \n");
+#endif
     for(;rkpp != 0 && ua_begin_matched != strlen(str_ua_begin); rkpp = rkpp -> next)
     {
         unsigned char* p;
         for(p = rkpPacket_appBegin(rkpp); p != rkpPacket_appEnd(rkpp); p++)
         {
+#ifdef RKP_DEBUG
+            printk("rkp-ua: __rkpStream_modify: matching %c.\n", *p);
+#endif
             // 检查匹配 http 头结尾的情况
             if(*p == str_head_end[head_end_matched])
+            {
                 head_end_matched++;
+#ifdef RKP_DEBUG
+                printk("rkp-ua: __rkpStream_modify: head end matched.\n");
+#endif
+            }
             else
                 head_end_matched = 0;
             if(head_end_matched == strlen(str_head_end))
@@ -432,10 +481,15 @@ void __rkpStream_modify(struct rkpStream* rkps)
 
             // 检查匹配 "User-Agent: " 的情况
             if(*p == str_ua_begin[ua_begin_matched])
+            {
                 ua_begin_matched++;
+#ifdef RKP_DEBUG
+                printk("rkp-ua: __rkpStream_modify: ua begin matched.\n");
+#endif
+            }
             else
                 ua_begin_matched = 0;
-            if(ua_end_matched == strlen(str_ua_begin))
+            if(ua_begin_matched == strlen(str_ua_begin))
             {
 #ifdef RKP_DEBUG
                 printk("rkp-ua: __rkpStream_modify: ua found.\n");
@@ -457,16 +511,32 @@ void __rkpStream_modify(struct rkpStream* rkps)
     }
     
     // 匹配 "\r\n" 和需要忽略的关键字的阶段
+#ifdef RKP_DEBUG
+    printk("matching \\r\\n\n");
+#endif
+    if(n_str_preserve > 0)
     keyword_matched = rkpMalloc(n_str_preserve * sizeof(unsigned));
     memset(keyword_matched, 0, n_str_preserve * sizeof(unsigned));
-    for(;rkpp != 0 && ua_end_matched != strlen(str_ua_end); rkpp = rkpp -> next)
+    for(rkpp = ua_begin_rkpp; rkpp != 0 && ua_end_matched != strlen(str_ua_end); rkpp = rkpp -> next)
     {
         unsigned char* p;
-        for(p = ua_begin_p; p != rkpPacket_appEnd(rkpp); p++)
+        if(rkpp == ua_begin_rkpp)
+            p = ua_begin_p;
+        else
+            p = rkpPacket_appBegin(rkpp);
+        for(; p != rkpPacket_appEnd(rkpp); p++)
         {
             // 检查匹配 "\r\n" 的情况
-            if(*p == str_head_end[ua_end_matched])
+#ifdef RKP_DEBUG
+            printk("rkp-ua: __rkpStream_modify: matching %c.\n", *p);
+#endif
+            if(*p == str_ua_end[ua_end_matched])
+            {
                 ua_end_matched++;
+#ifdef RKP_DEBUG
+                printk("rkp-ua: __rkpStream_modify: ua end matched.\n");
+#endif
+            }
             else
                 ua_end_matched = 0;
             if(ua_end_matched == strlen(str_ua_end))

@@ -22,7 +22,7 @@ static unsigned char str_ua_rkp[16];
 
 void* rkpMalloc(unsigned size)
 {
-    void* p = kmalloc(size, GFP_KERNEL);
+    void* p = kmalloc(size, GFP_NOWAIT);
     if(p == 0)
         printk("rkp-ua: malloc failed.\n");
     return p;
