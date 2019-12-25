@@ -18,7 +18,7 @@
 const static unsigned char* str_ua_begin = "User-Agent: ";
 const static unsigned char* str_ua_end = "\r\n";
 const static unsigned char* str_head_end = "\r\n\r\n";
-static unsigned char str_ua_rkp[9];
+static unsigned char str_ua_rkp[16];
 
 void* rkpMalloc(unsigned size)
 {

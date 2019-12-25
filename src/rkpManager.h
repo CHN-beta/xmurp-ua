@@ -29,7 +29,7 @@ struct rkpManager* rkpManager_new(struct mutex* lock)
 }
 void rkpManager_delete(struct rkpManager* rkpm)
 {
-    __rkpManager_lock(rkpm);
+    // __rkpManager_lock(rkpm);
     unsigned i;
     for(i = 0; i < 256; i++)
     {
@@ -41,7 +41,7 @@ void rkpManager_delete(struct rkpManager* rkpm)
             rkps = rkps2;
         }
     }
-    __rkpManager_unlock(rkpm);
+    // __rkpManager_unlock(rkpm);
     rkpFree(rkpm);
 }
 

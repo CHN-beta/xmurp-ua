@@ -15,7 +15,7 @@ unsigned int hook_funcion(void *priv, struct sk_buff *skb, const struct nf_hook_
 		return NF_ACCEPT;
 	if(!rkpSettings_capture(skb))
 		return NF_ACCEPT;
-
+	return NF_ACCEPT;
 	rtn = rkpManager_execute(rkpm, skb);
 
 	n_skb_captured++;
@@ -44,9 +44,9 @@ static int __init hook_init(void)
 	nfho.priority = NF_IP_PRI_RAW;
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4,13,0)
-    ret = nf_register_net_hook(&init_net, &nfho);
+    // ret = nf_register_net_hook(&init_net, &nfho);
 #else
-    ret = nf_register_hook(&nfho);
+    // ret = nf_register_hook(&nfho);
 #endif
 
 	printk("rkp-ua: Started, version %s\n", VERSION);
@@ -67,9 +67,9 @@ static void __exit hook_exit(void)
 	mutex_destroy(&lock);
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4,13,0)
-    nf_unregister_net_hook(&init_net, &nfho);
+    // nf_unregister_net_hook(&init_net, &nfho);
 #else
-    nf_unregister_hook(&nfho);
+    // nf_unregister_hook(&nfho);
 #endif
 	printk("rkp-ua: Stopped.\n");
 }
