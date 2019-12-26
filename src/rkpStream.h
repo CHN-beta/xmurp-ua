@@ -169,9 +169,9 @@ unsigned rkpStream_execute(struct rkpStream* rkps, struct sk_buff* skb)
         temp[rkpPacket_appLen(p)] = 0;
         printk("\tcontent length: %d\n", rkpPacket_appLen(p));
         printk("\tpacket content: %s\n", temp);
-        printk("\tpacket content in int:");
-        for(rtn = 0; rtn < rkpPacket_appLen(p); rtn++)
-            printk("%d\n", rkpPacket_appBegin(p)[rtn]);
+        // printk("\tpacket content in int:");
+        // for(rtn = 0; rtn < rkpPacket_appLen(p); rtn++)
+        //     printk("%d\n", rkpPacket_appBegin(p)[rtn]);
         rtn = NF_STOLEN;
         printk("\n");
         rkpFree(temp);
