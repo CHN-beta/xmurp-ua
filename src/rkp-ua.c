@@ -22,7 +22,7 @@ unsigned int hook_funcion(void *priv, struct sk_buff *skb, const struct nf_hook_
 	n_skb_captured++;
 	if(n_skb_captured == n_skb_captured_lastPrint * 2)
 	{
-		printk("rkp-ua: Captured %d packages.\n", n_skb_captured);
+		printk("rkp-ua: Captured %d packets.\n", n_skb_captured);
 		n_skb_captured_lastPrint *= 2;
 	}
 #ifdef RKP_DEBUG
