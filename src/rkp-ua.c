@@ -68,14 +68,13 @@ static int __init hook_init(void)
 
 static void __exit hook_exit(void)
 {
-	if(rkpm != 0)
-		rkpManager_delete(rkpm);
-
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4,13,0)
     nf_unregister_net_hook(&init_net, &nfho);
 #else
     nf_unregister_hook(&nfho);
 #endif
+	if(rkpm != 0)
+		rkpManager_delete(rkpm);
 	printk("rkp-ua: Stopped.\n");
 }
 

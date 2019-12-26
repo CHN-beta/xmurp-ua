@@ -13,7 +13,7 @@ struct rkpStream
     u_int32_t id[3];        // 按顺序存储客户地址、服务地址、客户端口、服务端口，已经转换字节序
     struct rkpPacket *buff_scan, *buff_disordered;      // 分别存储准备扫描的、因乱序而提前收到的数据包，都按照字节序排好了
     u_int32_t seq_offset;       // 序列号的偏移。使得 buff_scan 中第一个字节的编号为零。
-    time_t last_active;         // 最后活动时间，用来剔除长时间不活动的流。
+    bool active;                // 是否仍然活动，超过一定时间不活动的流会被销毁
     unsigned scan_matched;      // 记录现在已经匹配了多少个字节
     struct rkpStream *prev, *next;
 };
@@ -52,7 +52,7 @@ struct rkpStream* rkpStream_new(const struct sk_buff* skb)
     rkps -> id[2] = (((u_int32_t)ntohs(tcph -> source)) << 16) + ntohs(tcph -> dest);
     rkps -> buff_scan = rkps -> buff_disordered = 0;
     rkps -> seq_offset = ntohl(tcp_hdr(skb) -> seq) + 1;
-    rkps -> last_active = now();
+    rkps -> active = true;
     rkps -> scan_matched = 0;
     rkps -> prev = rkps -> next = 0;
 #ifdef RKP_DEBUG
@@ -110,7 +110,7 @@ unsigned rkpStream_execute(struct rkpStream* rkps, struct sk_buff* skb)
 #endif
 
     // 肯定需要更新时间
-    rkps -> last_active = now();
+    rkps -> active = true;
 
     // 不携带应用层数据的情况。直接接受即可。以后的情况，都是含有应用层数据的包了。
     if(rkpPacket_appLen(p) == 0)
