@@ -12,8 +12,8 @@ struct rkpManager* rkpManager_new(void);
 void rkpManager_delete(struct rkpManager*);
 
 int rkpManager_execute(struct rkpManager*, struct sk_buff*);   // 处理一个数据包。返回值为 rkpStream_execute 的返回值。
-int __rkpManager_execute(struct rkpManager*, struct sk_buff*);
-void __rkpManager_refresh(unsigned long);  // 清理过时的流
+int __rkpManager_execute(struct rkpManager*, struct rkpPacket*);
+void __rkpManager_refresh(unsigned long);                       // 清理长时间不活动的流
 
 void __rkpManager_lock(struct rkpManager*, unsigned long*);
 void __rkpManager_unlock(struct rkpManager*, unsigned long);
@@ -24,13 +24,11 @@ struct rkpManager* rkpManager_new(void)
     if(rkpm == 0)
         return 0;
     memset(rkpm -> data, 0, sizeof(struct rkpStream*) * 256);
-    // 初始化线程锁
     spin_lock_init(&rkpm -> lock);
-    // 注册定时器
     init_timer(&rkpm -> timer);
     rkpm -> timer.function = __rkpManager_refresh;
     rkpm -> timer.data = (unsigned long)rkpm;
-    rkpm -> timer.expires = jiffies + 600 * HZ;
+    rkpm -> timer.expires = jiffies + time_keepalive * HZ;
     add_timer(&rkpm -> timer);
     return rkpm;
 }
@@ -44,7 +42,7 @@ void rkpManager_delete(struct rkpManager* rkpm)
         struct rkpStream* rkps = rkpm -> data[i];
         while(rkps != 0)
         {
-            struct rkpStream *rkps2 = rkps -> next;
+            struct rkpStream* rkps2 = rkps -> next;
             rkpStream_delete(rkps);
             rkps = rkps2;
         }
@@ -58,55 +56,57 @@ int rkpManager_execute(struct rkpManager* rkpm, struct sk_buff* skb)
 {
     unsigned long flag;
     int rtn;
+    struct rkpPacket* rkpp = rkpPacket_new(skb);
     __rkpManager_lock(rkpm, &flag);
-    rtn = __rkpManager_execute(rkpm, skb);
+    rtn = __rkpManager_execute(rkpm, rkpp);
     __rkpManager_unlock(rkpm, flag);
+    if(rtn == NF_ACCEPT || rtn == NF_DROP)
+        rkpPacket_delete(rkpp);
     return rtn;
 }
-int __rkpManager_execute(struct rkpManager* rkpm, struct sk_buff* skb)
+int __rkpManager_execute(struct rkpManager* rkpm, struct rkpPacket* rkpp)
 {
 #ifdef RKP_DEBUG
     printk("rkp-ua: rkpManager_execute start.\n");
-    printk("\tsyn %d ack %d\n", tcp_hdr(skb) -> syn, tcp_hdr(skb) -> ack);
-    printk("\tsport %d dport %d\n", ntohs(tcp_hdr(skb) -> source), ntohs(tcp_hdr(skb) -> dest));
-    printk("\tid %d\n", (ntohs(tcp_hdr(skb) -> source) + ntohs(tcp_hdr(skb) -> dest)) & 0xFF);
+    printk("\tsyn %d\n", rkpPacket_syn(rkpp));
+    printk("\tsport %d dport %d\n", rkpPacket_sport(rkpp), rkpPacket_dport(rkpp));
+    printk("\tid %d\n", rkpp -> sid);
 #endif
 
-    // 不使用标志位（三次握手）来判断是否该新建一个流，而直接搜索是否有符合条件的流，有就使用，没有就新建
-    u_int8_t id = (ntohs(tcp_hdr(skb) -> source) + ntohs(tcp_hdr(skb) -> dest)) & 0xFF;
     struct rkpStream *rkps, *rkps_new;
 
-    for(rkps = rkpm -> data[id]; rkps != 0; rkps = rkps -> next)
-        if(rkpStream_belongTo(rkps, skb))
+    // 搜索是否有符合条件的流
+    for(rkps = rkpm -> data[rkpp -> sid]; rkps != 0; rkps = rkps -> next)
+        if(rkpStream_belongTo(rkps, rkpp))       // 找到了，执行即可
         {
 #ifdef RKP_DEBUG
             printk("__rkpManager_execute: found target stream.\n");
 #endif
-            return rkpStream_execute(rkps, skb);
+            return rkpStream_execute(rkps, rkpp);
         }
 
-    // 如果运行到这里的话，那就是没有找到了
+    // 如果运行到这里的话，那就是没有找到了，新建一个流再执行
 #ifdef RKP_DEBUG
     printk("__rkpManager_execute: target stream not found, create a new one. \n");
 #endif
-    rkps_new = rkpStream_new(skb);
+    rkps_new = rkpStream_new(rkpp);
     if(rkps_new == 0)
         return NF_ACCEPT;
-    if(rkpm -> data[id] == 0)
+    if(rkpm -> data[rkpp -> sid] == 0)
     {
-        rkpm -> data[id] = rkps_new;
 #ifdef RKP_DEBUG
         printk("rkpManager_execute: add a new stream %d to an empty list.\n", id);
 #endif
+        rkpm -> data[rkpp -> sid] = rkps_new;
     }
     else
     {
-        rkpm -> data[id] -> prev = rkps_new;
-        rkps_new -> next = rkpm -> data[id];
-        rkpm -> data[id] = rkps_new;
 #ifdef RKP_DEBUG
         printk("rkpManager_execute: add a new stream %d to an unempty list.\n", id);
 #endif
+        rkpm -> data[rkpp -> sid] -> prev = rkps_new;
+        rkps_new -> next = rkpm -> data[rkpp -> sid];
+        rkpm -> data[rkpp -> sid] = rkps_new;
     }
     return rkpStream_execute(rkps_new, skb);
 }
@@ -115,7 +115,7 @@ void __rkpManager_refresh(unsigned long param)
 {
     unsigned i;
     unsigned long flag;
-    struct rkpManager* rkpm = (struct rkpManager*)param;
+    struct rkpManager*& rkpm = (struct rkpManager*)param;
 #ifdef RKP_DEBUG
     printk("__rkpManager_refresh start.\n");
 #endif
@@ -142,6 +142,8 @@ void __rkpManager_refresh(unsigned long param)
                 rkps = rkps -> next;
             }
     }
+    rkpm -> timer.expires = jiffies + time_keepalive * HZ;
+    add_timer(&rkpm -> timer);
     __rkpManager_unlock(rkpm, flag);
 #ifdef RKP_DEBUG
     printk("__rkpManager_refresh end.\n");

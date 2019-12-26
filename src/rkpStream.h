@@ -7,18 +7,20 @@ struct rkpStream
 {
     enum
     {
-        __rkpStream_sniffing,
-        __rkpStream_waiting
+        __rkpStream_sniffing_end,       // 正在寻找 http 头的结尾或者 ua 的开始，这时 buff_scan 中不应该有包
+        __rkpStream_sniffing_ua,        // 已经找到 ua，正在寻找它的结尾，buff_scan 中可能有包
+        __rkpStream_waiting             // 已经找到 ua 的结尾或者 http 头的结尾并且还没有 psh，接下来的包都直接放行
     } status;
     u_int32_t id[3];        // 按顺序存储客户地址、服务地址、客户端口、服务端口，已经转换字节序
-    struct rkpPacket *buff_scan, *buff_disordered;      // 分别存储准备扫描的、因乱序而提前收到的数据包，都按照字节序排好了
+    struct rkpPacket *buff_scan, *buff_disordered;      // 分别存储准备扫描的、因乱序而提前收到的数据包，都按照序号排好了
     u_int32_t seq_offset;       // 序列号的偏移。使得 buff_scan 中第一个字节的编号为零。
     bool active;                // 是否仍然活动，超过一定时间不活动的流会被销毁
-    unsigned scan_matched;      // 记录现在已经匹配了多少个字节
+    unsigned scan_httpEnd_matched, scan_uaBegin_matched, scan_uaEnd_matched;      // 记录现在已经匹配了多少个字节
+    unsigned char *scan_uaBegin_p, *scan_uaEnd_p;           // 在扫描到相关信息后，将信息填写到这里
     struct rkpStream *prev, *next;
 };
 
-struct rkpStream* rkpStream_new(const struct sk_buff*);   // 由三次握手的第一个包构造一个 rkpSteam
+struct rkpStream* rkpStream_new(const struct sk_buff*);   // 构造一个 rkpSteam
 void rkpStream_delete(struct rkpStream*);
 
 bool rkpStream_belongTo(const struct rkpStream*, const struct sk_buff*);      // 判断一个数据包是否属于一个流
@@ -28,10 +30,9 @@ int32_t __rkpStream_seq_scanEnd(struct rkpStream*);         // 返回 buff_scan 
 
 void __rkpStream_insert_auto(struct rkpStream*, struct rkpPacket**, struct rkpPacket*);     // 在指定链表中插入一个节点
 void __rkpStream_insert_end(struct rkpStream*, struct rkpPacket**, struct rkpPacket*);
-struct rkpPacket* __rkpStream_pop_end(struct rkpStream*, struct rkpPacket**);
 
-bool __rkpStream_scan(struct rkpStream*, struct rkpPacket*);  // 在包的应用层搜索 ua 头的结尾
-void __rkpStream_modify(struct rkpStream*);         // 在已经收集到完整的 HTTP 头后，调用去按规则修改 buff_scan 中的包
+bool __rkpStream_scan(struct rkpStream*, struct rkpPacket*);    // 对一个最新的包进行扫描
+void __rkpStream_modify(struct rkpStream*);                     // 在收集到完整的 ua 后，对 ua 进行修改
 
 struct rkpStream* rkpStream_new(const struct sk_buff* skb)
 {
@@ -39,19 +40,15 @@ struct rkpStream* rkpStream_new(const struct sk_buff* skb)
     printk("rkp-ua: rkpStream_new start.\n");
 #endif
     struct rkpStream* rkps = rkpMalloc(sizeof(struct rkpStream));
-    const struct iphdr* iph = ip_hdr(skb);
-    const struct tcphdr* tcph = tcp_hdr(skb);
+    struct rkpPacket* rkpp = rkpPacket_new(skb);
     if(rkps == 0)
-    {
-        printk("rkp-ua: rkpStream_new: malloc failed, may caused by shortage of memory.\n");
         return 0;
-    }
-    rkps -> status = __rkpStream_sniffing;
+    rkps -> status = __rkpStream_sniffing_end;
     rkps -> id[0] = ntohl(iph -> saddr);
     rkps -> id[1] = ntohl(iph -> daddr);
     rkps -> id[2] = (((u_int32_t)ntohs(tcph -> source)) << 16) + ntohs(tcph -> dest);
     rkps -> buff_scan = rkps -> buff_disordered = 0;
-    rkps -> seq_offset = ntohl(tcp_hdr(skb) -> seq) + 1;
+    rkps -> seq_offset = ntohl(tcp_hdr(skb) -> seq);
     rkps -> active = true;
     rkps -> scan_matched = 0;
     rkps -> prev = rkps -> next = 0;
@@ -398,31 +395,6 @@ void __rkpStream_insert_end(struct rkpStream* rkps, struct rkpPacket** buff, str
     printk("rkp-ua: __rkpStream_insert_end end.\n");
 #endif
 }
-struct rkpPacket* __rkpStream_pop_end(struct rkpStream* rkps, struct rkpPacket** buff)
-{
-#ifdef RKP_DEBUG
-    printk("rkp-ua: __rkpStream_pop_end start.\n");
-#endif
-    if(*buff == 0)
-    {
-        printk("__rkpStream_pop_end: pop from an empty list.\n");
-        return 0;
-    }
-    else
-    {
-        struct rkpPacket* rkpp;
-        for(rkpp = *buff; rkpp -> next != 0; rkpp = rkpp -> next);
-        if(rkpp -> prev == 0)
-            *buff = 0;
-        else
-            rkpp -> prev = rkpp -> prev -> next = 0;
-        return rkpp;
-    }
-#ifdef RKP_DEBUG
-    printk("rkp-ua: __rkpStream_insert_end end.\n");
-#endif
-}
-
 
 bool __rkpStream_scan(struct rkpStream* rkps, struct rkpPacket* rkpp)
 {

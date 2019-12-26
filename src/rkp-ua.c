@@ -10,8 +10,6 @@ unsigned int hook_funcion(void *priv, struct sk_buff *skb, const struct nf_hook_
 
 	static unsigned n_skb_captured = 0, n_skb_captured_lastPrint = 1;
 
-	if(crashed)
-		return NF_ACCEPT;
 	if(!rkpSettings_capture(skb))
 		return NF_ACCEPT;
 #ifdef RKP_DEBUG
@@ -59,9 +57,7 @@ static int __init hook_init(void)
 	printk("rkp-ua: str_preserve: %d\n", n_str_preserve);
 	for(ret = 0; ret < n_str_preserve; ret++)
 		printk("\t%s\n", str_preserve[ret]);
-#ifdef RKP_DEBUG
 	printk("str_ua_rkp: %s\n", str_ua_rkp);
-#endif
 
 	return 0;
 }

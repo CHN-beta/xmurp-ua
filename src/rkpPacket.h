@@ -6,6 +6,8 @@ struct rkpPacket
 {
     struct rkpPacket *prev, *next;
     struct sk_buff* skb;
+    u_int8_t sid;
+    u_int32_t lid[3];
 };
 
 struct rkpPacket* rkpPacket_new(struct sk_buff*);
@@ -18,64 +20,46 @@ unsigned char* rkpPacket_appEnd(struct rkpPacket*);
 unsigned rkpPacket_appLen(struct rkpPacket*);
 int32_t rkpPacket_seq(struct rkpPacket*);
 int32_t rkpPacket_ack(struct rkpPacket*);
+u_int32_t rkpPacket_sip(struct rkpPacket*);
+u_int32_t rkpPacket_dip(struct rkpPacket*);
+u_int32_t rkpPacket_sport(struct rkpPacket*);
+u_int32_t rkpPacket_dport(struct rkpPacket*);
 bool rkpPacket_psh(struct rkpPacket*);
+bool rkpPacket_syn(struct rkpPacket*);
 
 void rkpPacket_csum(struct rkpPacket*);
 bool rkpPacket_makeWriteable(struct rkpPacket*);
 
 struct rkpPacket* rkpPacket_new(struct sk_buff* skb)
 {
-#ifdef RKP_DEBUG
-    printk("rkp-ua: rkpPacket_new start.\n");
-#endif
-    struct rkpPacket* p = rkpMalloc(sizeof(struct rkpPacket));
-    if(p != 0)
-    {
-        p -> prev = p -> next = 0;
-        p -> skb = skb;
-    }
-    else
-        printk("rkp-ua: rkpPacket_new: malloc failed.\n");
-#ifdef RKP_DEBUG
-    printk("rkp-ua: rkpPacket_new end.\n");
-#endif
+    struct rkpPacket* rkpp = rkpMalloc(sizeof(struct rkpPacket));
+    if(rkpp == 0)
+        return 0;
+    rkpp -> prev = rkpp -> next = 0;
+    rkpp -> skb = skb;
+    rkpp -> sid = (rkpPacket_sport(rkpp) + rkpPacket_dport(rkpp)) & 0xFF;
+    rkpp -> lid[0] = rkpPacket_sip(rkpp);
+    rkpp -> lid[1] = rkpPacket_dip(rkpp);
+    rkpp -> lid[2] = (rkpPacket_sport(rkpp) << 16) + rkpPacket_dport(rkpp);
     return p;
 }
 void rkpPacket_send(struct rkpPacket* p)
 {
-#ifdef RKP_DEBUG
-    printk("rkp-ua: rkpPacket_send start.\n");
-#endif
     if(dev_queue_xmit(p -> skb))
     {
         printk("rkp-ua: rkpPacket_new: Send failed. Drop it.\n");
         kfree_skb(p -> skb);
     }
     rkpFree(p);
-#ifdef RKP_DEBUG
-    printk("rkp-ua: rkpPacket_send end.\n");
-#endif
 }
 void rkpPacket_delete(struct rkpPacket* p)
 {
-#ifdef RKP_DEBUG
-    printk("rkp-ua: rkpPacket_delete start.\n");
-#endif
     rkpFree(p);
-#ifdef RKP_DEBUG
-    printk("rkp-ua: rkpPacket_delete end.\n");
-#endif
 }
 void rkpPacket_drop(struct rkpPacket* p)
 {
-#ifdef RKP_DEBUG
-    printk("rkp-ua: rkpPacket_drop start.\n");
-#endif
     kfree_skb(p -> skb);
     rkpFree(p);
-#ifdef RKP_DEBUG
-    printk("rkp-ua: rkpPacket_drop end.\n");
-#endif 
 }
 
 unsigned char* rkpPacket_appBegin(struct rkpPacket* p)
@@ -98,16 +82,33 @@ int32_t rkpPacket_ack(struct rkpPacket* p)
 {
     return ntohl(tcp_hdr(p -> skb) -> ack);
 }
+u_int32_t rkpPacket_sip(struct rkpPacket* rkpp)
+{
+    return ntohl(ip_hdr(rkpp -> skb) -> saddr);
+}
+u_int32_t rkpPacket_dip(struct rkpPacket* rkpp)
+{
+    return ntohl(ip_hdr(rkpp -> skb) -> daddr);
+}
+u_int16_t rkpPacket_sport(struct rkpPacket* rkpp)
+{
+    return ntohs(tcp_hdr(rkpp -> skb) -> source);
+}
+u_int32_t rkpPacket_dport(struct rkpPacket* rkpp)
+{
+    return ntohs(tcp_hdr(rkpp -> skb) -> dest);
+}
 bool rkpPacket_psh(struct rkpPacket* rkpp)
 {
     return tcp_hdr(rkpp -> skb) -> psh;
 }
+bool rkpPacket_syn(struct rkpPacket* rkpp)
+{
+    return tcp_hdr(rkpp -> skb) -> syn;
+}
 
 void rkpPacket_csum(struct rkpPacket* p)
 {
-#ifdef RKP_DEBUG
-    printk("rkp-ua: rkpPacket_csum start.\n");
-#endif
     struct iphdr* iph = ip_hdr(p -> skb);
     struct tcphdr* tcph = tcp_hdr(p -> skb);
     tcph -> check = 0;
@@ -115,9 +116,6 @@ void rkpPacket_csum(struct rkpPacket* p)
     iph -> check = ip_fast_csum((unsigned char*)iph, iph -> ihl);
     p -> skb -> csum = skb_checksum(p -> skb, iph -> ihl * 4, ntohs(iph -> tot_len) - iph -> ihl * 4, 0);
     tcph -> check = csum_tcpudp_magic(iph -> saddr, iph -> daddr, ntohs(iph -> tot_len) - iph -> ihl * 4, IPPROTO_TCP, p -> skb -> csum);
-#ifdef RKP_DEBUG
-    printk("rkp-ua: rkpPacket_csum end.\n");
-#endif
 }
 
 bool rkpPacket_makeWriteable(struct rkpPacket* rkpp)

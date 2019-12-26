@@ -31,26 +31,3 @@ void rkpFree(void* p)
 {
     kfree(p);
 }
-
-time_t now(void)
-{
-    struct timespec* ts = rkpMalloc(sizeof(struct timespec));
-    time_t rtn;
-    getnstimeofday(ts);
-    rtn = ts -> tv_sec;
-    rkpFree(ts);
-#ifdef RKP_DEBUG
-    printk("now %lu\n", ts -> tv_sec);
-#endif
-    return rtn;
-}
-
-#ifdef RKP_DEBUG
-void skb_print(struct sk_buff* skb)
-{
-    printk("skb_print:\n");
-    printk("\tport: %u %u\n", ntohs(tcp_hdr(skb) -> source), ntohs(tcp_hdr(skb) -> dest));
-    printk("\tseq: %u %u\n", ntohl(tcp_hdr(skb) -> seq), ntohl(tcp_hdr(skb) -> ack_seq));
-    printk("\tsyn %d ack %d psh %d\n", tcp_hdr(skb) -> syn, tcp_hdr(skb) -> ack, tcp_hdr(skb) -> psh);
-}
-#endif
