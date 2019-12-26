@@ -153,140 +153,156 @@ unsigned rkpStream_execute(struct rkpStream* rkps, struct sk_buff* skb)
     }
 
     // 接下来是恰好是 buff_scan 的后继数据包的情况，先分状态讨论，再一起考虑 buff_disordered 中的包
-#ifdef RKP_DEBUG
-    printk("\tdesired packet judged.\n");
-    unsigned char* temp = rkpMalloc((rkpPacket_appLen(p) + 1) * sizeof(unsigned char));
-    memcpy(temp, rkpPacket_appBegin(p), rkpPacket_appLen(p));
-    temp[rkpPacket_appLen(p)] = 0;
-    printk("\tpacket content: %s\n", temp);
-#endif
-    unsigned rtn;
-    // 如果是在 sniffing 的情况下，那一定先丢到 buff_scan 里，然后扫描一下看结果，重新设定状态
-    if(rkps -> status == __rkpStream_sniffing)
+    if(rkpPacket_seq(p) - rkps -> seq_offset == __rkpStream_seq_scanEnd(rkps))
     {
+        // 因为一会儿可能还需要统一考虑 buff_disordered 中的包，因此不直接 return，将需要的返回值写到这里，最后再 return
+        // 可以先假定 rtn 是 NF_STOLEN，只有在以下几种情况下才会将返回值改为 NF_ACCEPT
+        //      * sniffing 状态下，扫描到了 http 头的结尾，无论是否改 ua，反正都是要 accept
+        //      * sniffing 状态下，没有读到 http 头的结尾，但是有设置 psh
+        //      * waiting 状态下
+        unsigned rtn = NF_STOLEN;
 #ifdef RKP_DEBUG
-        printk("\t\tsniffing.\n");
+        printk("\tdesired packet judged.\n");
+        rkpPacket_makeWriteable(p);
+        unsigned char* temp = rkpMalloc((rkpPacket_appLen(p) + 1) * sizeof(unsigned char));
+        memcpy(temp, rkpPacket_appBegin(p), rkpPacket_appLen(p));
+        temp[rkpPacket_appLen(p)] = 0;
+        printk("\tcontent length: %d\n", rkpPacket_appLen(p));
+        printk("\tpacket content: %s\n", temp);
+        printk("\tpacket content in int:");
+        for(rtn = 0; rtn < rkpPacket_appLen(p); rtn++)
+            printk("%d\n", rkpPacket_appBegin(p)[rtn]);
+        rtn = NF_STOLEN;
+        printk("\n");
+        rkpFree(temp);
 #endif
-        // 丢到 buff_scan 里，记得一会儿如果要 accept，还要拿出来，以及更新序列号
-        __rkpStream_insert_end(rkps, &rkps -> buff_scan, p);
-        if(__rkpStream_scan(rkps, p))     // 扫描到了
+        // 如果是在 sniffing 的情况下，那一定先丢到 buff_scan 里，然后扫描一下看结果
+        if(rkps -> status == __rkpStream_sniffing)
         {
 #ifdef RKP_DEBUG
-            printk("\t\t\thttp head end matched.\n");
+            printk("\t\tsniffing.\n");
 #endif
-            // 替换 ua
-            __rkpStream_modify(rkps);
-            // 发出数据包，注意最后一个不发，等会儿 accept 就好
-            struct rkpPacket* p;
-            for(p = rkps -> buff_scan; p != 0 && p -> next != 0;)
+            // 作任何应用层的读取和写入之前，都需要 writeable，而只有这种情况需要做。
+            rkpPacket_makeWriteable(p);
+            // 丢到 buff_scan 里，记得一会儿如果要 accept，还要拿出来，以及更新序列号
+            __rkpStream_insert_end(rkps, &rkps -> buff_scan, p);
+            if(__rkpStream_scan(rkps, p))     // 扫描到了 http 头的结尾
             {
-                struct rkpPacket* p2 = p;
-                p = p -> next;
-                // rkps -> seq_offset = rkpPacket_seq(p2) + rkpPacket_appLen(p2); 不需要更新偏移，因为最后一个包等会儿 accept 的时候会更新
-                rkpPacket_send(p2);
+#ifdef RKP_DEBUG
+                printk("\t\t\thttp head end matched.\n");
+#endif
+                // 替换 ua
+                __rkpStream_modify(rkps);
+                // 发出数据包，注意最后一个不发，等会儿 accept 就好
+                struct rkpPacket* p2;
+                for(p2 = rkps -> buff_scan; p2 != 0 && p2 -> next != 0;)
+                {
+                    struct rkpPacket* p3 = p2;
+                    p2 = p2 -> next;
+                    // rkps -> seq_offset = rkpPacket_seq(p2) + rkpPacket_appLen(p2); 不需要更新偏移，因为最后一个包等会儿 accept 的时候会更新
+                    rkpPacket_send(p2);
+                }
+                // 如果没有 psh，设定状态为等待
+                if(!rkpPacket_psh(p))
+                    rkps -> status = __rkpStream_waiting;
+                // 将最后一个包再拿出来，将链表清空，更新偏移，以及把用不到的删掉
+                rkps -> buff_scan = 0;
+                p -> prev = 0;
+                rkps -> seq_offset = rkpPacket_seq(p) + rkpPacket_appLen(p);
+                rkpPacket_delete(p);
+                // accept
+                rtn = NF_ACCEPT;
             }
-            // 设定状态为等待
-            rkps -> status = __rkpStream_waiting;
-            // accept
-            rtn = NF_ACCEPT;
-        }
-        // 没有扫描到，那么 stolen
-        else
-        {
-            if(!rkpPacket_psh(p))    // 如果同时没有 psh，就偷走
-                rtn = NF_STOLEN;
-#ifdef RKP_DEBUG
-            printk("\t\t\thttp head end not matched.\n");
-#endif
-        }
-        // 处理一下 psh
-        if(rkpPacket_psh(p))
-        {
-#ifdef RKP_DEBUG
-            printk("\t\t\tpsh found.\n");
-#endif
-            if(rkps -> buff_scan != 0)      // 如果刚刚没有扫描到 http 结尾
+            // 没有扫描到但是有 psh，同样要全部发出并 accept
+            else if(rkpPacket_psh(p))
             {
 #ifdef RKP_DEBUG
                 printk("rkp-ua: rkpStream_execute: psh found before http head end.\n");
 #endif
-                struct rkpPacket* p;
-                for(p = rkps -> buff_scan; p != 0 && p -> next != 0;)
+                // 发出数据包，注意最后一个不发，等会儿 accept 就好
+                struct rkpPacket* p2;
+                for(p2 = rkps -> buff_scan; p2 != 0 && p2 -> next != 0;)
                 {
-                    struct rkpPacket* p2 = p;
-                    p = p -> next;
-                    rkps -> seq_offset = rkpPacket_seq(p2) + rkpPacket_appLen(p2);
+                    struct rkpPacket* p3 = p2;
+                    p2 = p2 -> next;
+                    // rkps -> seq_offset = rkpPacket_seq(p2) + rkpPacket_appLen(p2); 不需要更新偏移，因为最后一个包等会儿 accept 的时候会更新
                     rkpPacket_send(p2);
                 }
+                // 将最后一个包再拿出来，将链表清空，更新偏移，以及把用不到的删掉
+                rkps -> buff_scan = 0;
+                p -> prev = 0;
+                rkps -> seq_offset = rkpPacket_seq(p) + rkpPacket_appLen(p);
+                rkpPacket_delete(p);
+                // accept
+                rtn = NF_ACCEPT;
             }
-            else        // 如果刚刚扫描到了
+            // 没有扫描到也没有 psh，偷走就好了，不需要任何操作
+            else
+            {
+#ifdef RKP_DEBUG
+                printk("rkp-ua: rkpStream_execute: head end not found.\n");
+#endif
+            }
+        }
+        else    // waiting 的状态，检查 psh、设置序列号偏移、然后放行就可以了
+        {
+#ifdef RKP_DEBUG
+            printk("\t\twaiting.\n");
+#endif
+            rkps -> seq_offset = rkpPacket_seq(p) + rkpPacket_appLen(p);
+            if(rkpPacket_psh(p))
                 rkps -> status = __rkpStream_sniffing;
-
-            // 只要有 psh，肯定接受
+            rkpPacket_delete(p);
             rtn = NF_ACCEPT;
         }
-        if(rtn == NF_ACCEPT)        // 记得再 pop 出来！
-        {
-            __rkpStream_pop_end(rkps, &rkps -> buff_scan);
-            rkps -> seq_offset = rkpPacket_seq(p) + rkpPacket_appLen(p);
-        }
-    }
-    else    // waiting 的状态，检查 psh、设置序列号偏移、然后放行就可以了
-    {
-#ifdef RKP_DEBUG
-        printk("\t\tsniffing.\n");
-#endif
-        rkps -> seq_offset = rkpPacket_seq(p) + rkpPacket_appLen(p);
-        if(rkpPacket_psh(p))
-            rkps -> status = __rkpStream_sniffing;
-        rtn = NF_ACCEPT;
-    }
 
-    // 考虑 buff_disordered
-    while(rkps -> buff_disordered != 0)
-    {
-        if(rkpPacket_seq(rkps -> buff_disordered) - rkps -> seq_offset < __rkpStream_seq_scanEnd(rkps))
-        // 序列号是已经发出去的，丢弃
+        // 考虑 buff_disordered
+        while(rkps -> buff_disordered != 0)
         {
-            if(rkps -> buff_disordered -> next == 0)
+            if(rkpPacket_seq(rkps -> buff_disordered) - rkps -> seq_offset < __rkpStream_seq_scanEnd(rkps))
+            // 序列号是已经发出去的，丢弃
             {
-                rkpPacket_drop(rkps -> buff_disordered);
-                rkps -> buff_disordered = 0;
+                if(rkps -> buff_disordered -> next == 0)
+                {
+                    rkpPacket_drop(rkps -> buff_disordered);
+                    rkps -> buff_disordered = 0;
+                }
+                else
+                {
+                    rkps -> buff_disordered = rkps -> buff_disordered -> next;
+                    rkpPacket_drop(rkps -> buff_disordered -> prev);
+                    rkps -> buff_disordered -> prev = 0;
+                }
             }
+            // 如果序列号过大，结束循环
+            else if(rkpPacket_seq(rkps -> buff_disordered) - rkps -> seq_offset > __rkpStream_seq_scanEnd(rkps))
+                break;
+            // 如果序列号恰好，把它从链表中取出，然后像刚刚抓到的包那样去执行
             else
             {
-                rkps -> buff_disordered = rkps -> buff_disordered -> next;
-                rkpPacket_drop(rkps -> buff_disordered -> prev);
-                rkps -> buff_disordered -> prev = 0;
+                // 将包从链表中取出
+                struct rkpPacket* p2 = rkps -> buff_disordered;
+                if(rkps -> buff_disordered -> next == 0)
+                    rkps -> buff_disordered = 0;
+                else
+                {
+                    rkps -> buff_disordered = p2 -> next;
+                    rkps -> buff_disordered -> prev = 0;
+                    p2 -> next = 0;
+                }
+                // 执行
+                unsigned rtn = rkpStream_execute(rkps, p2 -> skb);
+                if(rtn == NF_ACCEPT)
+                    rkpPacket_send(p2);
+                else if(rtn == NF_DROP)
+                    rkpPacket_drop(p2);
+                else if(rtn == NF_STOLEN)
+                    rkpPacket_delete(p2);
             }
         }
-        // 如果序列号过大，结束循环
-        else if(rkpPacket_seq(rkps -> buff_disordered) - rkps -> seq_offset > __rkpStream_seq_scanEnd(rkps))
-            break;
-        // 如果序列号恰好，把它从链表中取出，然后像刚刚抓到的包那样去执行
-        else
-        {
-            // 将包从链表中取出
-            struct rkpPacket* p2 = rkps -> buff_disordered;
-            if(rkps -> buff_disordered -> next == 0)
-                rkps -> buff_disordered = 0;
-            else
-            {
-                rkps -> buff_disordered = rkps -> buff_disordered -> next;
-                rkps -> buff_disordered -> prev = 0;
-            }
-            // 执行
-            unsigned rtn = rkpStream_execute(rkps, p2 -> skb);
-            if(rtn == NF_ACCEPT)
-                rkpPacket_send(p2);
-            else if(rtn == NF_DROP)
-                rkpPacket_drop(p2);
-            else if(rtn == NF_STOLEN)
-                rkpPacket_delete(p2);
-        }
+        
+        return rtn;
     }
-    
-    return rtn;
 }
 
 int32_t __rkpStream_seq_scanEnd(struct rkpStream* rkps)
@@ -515,8 +531,10 @@ void __rkpStream_modify(struct rkpStream* rkps)
     printk("matching \\r\\n\n");
 #endif
     if(n_str_preserve > 0)
-    keyword_matched = rkpMalloc(n_str_preserve * sizeof(unsigned));
-    memset(keyword_matched, 0, n_str_preserve * sizeof(unsigned));
+    {
+        keyword_matched = rkpMalloc(n_str_preserve * sizeof(unsigned));
+        memset(keyword_matched, 0, n_str_preserve * sizeof(unsigned));
+    }
     for(rkpp = ua_begin_rkpp; rkpp != 0 && ua_end_matched != strlen(str_ua_end); rkpp = rkpp -> next)
     {
         unsigned char* p;
@@ -547,6 +565,9 @@ void __rkpStream_modify(struct rkpStream* rkps)
                 // 如果在某个包的开头几个字节匹配结束（即 ua 实际上全部位于上一个包），就返回去
                 if(p + 1 - rkpPacket_appBegin(rkpp) <= strlen(str_ua_end))
                 {
+#ifdef RKP_DEBUG
+                    printk("rkp-ua: __rkpStream_modify: move to last packet.\n");
+#endif
                     unsigned temp = strlen(str_ua_end) - (p + 1 - rkpPacket_appBegin(rkpp));    // str_ua_end 位于上一个包中的长度
                     rkpp = rkpp -> prev;
                     p = rkpPacket_appEnd(rkpp) - temp;
@@ -558,7 +579,8 @@ void __rkpStream_modify(struct rkpStream* rkps)
                 ua_end_rkpp = rkpp;
                 ua_end_p = p;
                 // 记得删掉不用的内存
-                rkpFree(keyword_matched);
+                if(n_str_preserve > 0)
+                    rkpFree(keyword_matched);
                 break;
             }
 
@@ -584,38 +606,10 @@ void __rkpStream_modify(struct rkpStream* rkps)
     }
 
     // 已经获得了所需要的信息并且确认 ua 需要替换，然后替换 ua 的阶段
-    // 先全部 writeable
-    for(rkpp = ua_begin_rkpp; ; rkpp = rkpp -> next)
-    {
-        if(rkpp == ua_begin_rkpp && rkpp == ua_end_rkpp)
-        {
-            unsigned temp = ua_begin_p - rkpPacket_appBegin(rkpp);
-            if(!rkpPacket_makeWriteable(rkpp))
-                return;
-            ua_end_p = rkpPacket_appBegin(rkpp) + temp + (ua_end_p - ua_begin_p);
-            ua_begin_p = rkpPacket_appBegin(rkpp) + temp;
-            break;
-        }
-        else if(rkpp == ua_begin_rkpp)
-        {
-            unsigned temp = ua_begin_p - rkpPacket_appBegin(rkpp);
-            if(!rkpPacket_makeWriteable(rkpp))
-                return;
-            ua_begin_p = rkpPacket_appBegin(rkpp) + temp;
-        }
-        else if(rkpp == ua_end_rkpp)
-        {
-            unsigned temp = ua_end_p - rkpPacket_appBegin(rkpp);
-            if(!rkpPacket_makeWriteable(rkpp))
-                return;
-            ua_end_p = rkpPacket_appBegin(rkpp) + temp;
-            break;
-        }
-        else
-            if(!rkpPacket_makeWriteable(rkpp))
-                return;
-    }
-    // 然后放心大胆地替换字符串
+    // 已经全部 writeable，可以放心大胆地替换字符串
+#ifdef RKP_DEBUG
+    printk("rkp-ua: __rkpStream_modify: ua modify start.\n");
+#endif
     for(rkpp = ua_begin_rkpp; ; rkpp = rkpp -> next)
     {
         unsigned char* p;
@@ -635,6 +629,9 @@ void __rkpStream_modify(struct rkpStream* rkps)
             break;
     }
     // 重新计算校验和
+#ifdef RKP_DEBUG
+    printk("rkp-ua: __rkpStream_modify: skb checksum start.\n");
+#endif
     for(rkpp = ua_begin_rkpp; rkpp != 0 && rkpp -> prev != ua_end_rkpp; rkpp = rkpp -> next)
         rkpPacket_csum(rkpp);
 }
