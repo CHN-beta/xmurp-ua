@@ -71,99 +71,44 @@ int __rkpManager_execute(struct rkpManager* rkpm, struct sk_buff* skb)
     printk("\tsport %d dport %d\n", ntohs(tcp_hdr(skb) -> source), ntohs(tcp_hdr(skb) -> dest));
     printk("\tid %d\n", (ntohs(tcp_hdr(skb) -> source) + ntohs(tcp_hdr(skb) -> dest)) & 0xFF);
 #endif
-    if(rkpSettings_first(skb))
-    // 新增加一个流或覆盖已经有的流
-    {
-        u_int8_t id = (ntohs(tcp_hdr(skb) -> source) + ntohs(tcp_hdr(skb) -> dest)) & 0xFF;
-        struct rkpStream* rkps_new = rkpStream_new(skb);
-        struct rkpStream* rkps = rkpm -> data[id];
-#ifdef RKP_DEBUG
-        printk("\nAdd a stream id=%u.\n", id);
-#endif
-        if(rkps_new == 0)
-            return NF_ACCEPT;
 
-        // 查找可能的重复的流并删除
-        while(rkps != 0)
-            if(rkpStream_belongTo(rkps, skb))
-            {
-                printk("Found same stream %u.\n", id);
-                if(rkps -> prev != 0)
-                    rkps -> prev -> next = rkps -> next;
-                if(rkps -> next != 0)
-                    rkps -> next -> prev = rkps -> prev;
-                if(rkps == rkpm -> data[id])
-                    rkpm -> data[id] = rkps -> next;
-                rkpStream_delete(rkps);
-                rkps = rkpm -> data[id];
-                break;
-            }
-            else
-                rkps = rkps -> next;
+    // 不使用标志位（三次握手）来判断是否该新建一个流，而直接搜索是否有符合条件的流，有就使用，没有就新建
+    u_int8_t id = (ntohs(tcp_hdr(skb) -> source) + ntohs(tcp_hdr(skb) -> dest)) & 0xFF;
+    struct rkpStream *rkps, *rkps_new;
 
-        // 插入新的流
-        if(rkpm -> data[id] == 0)
+    for(rkps = rkpm -> data[id]; rkps != 0; rkps = rkps -> next)
+        if(rkpStream_belongTo(rkps, skb))
         {
-            rkpm -> data[id] = rkps_new;
 #ifdef RKP_DEBUG
-            printk("rkpManager_execute: add a new stream %d to an empty list.\n", id);
+            printk("__rkpManager_execute: found target stream.\n");
 #endif
-        }
-        else
-        {
-            rkpm -> data[id] -> prev = rkps_new;
-            rkps_new -> next = rkpm -> data[id];
-            rkpm -> data[id] = rkps_new;
-#ifdef RKP_DEBUG
-            printk("rkpManager_execute: add a new stream %d to an unempty list.\n", id);
-#endif
+            return rkpStream_execute(rkps, skb);
         }
 
+    // 如果运行到这里的话，那就是没有找到了
+#ifdef RKP_DEBUG
+    printk("__rkpManager_execute: target stream not found, create a new one. \n");
+#endif
+    rkps_new = rkpStream_new(skb);
+    if(rkps_new == 0)
         return NF_ACCEPT;
+    if(rkpm -> data[id] == 0)
+    {
+        rkpm -> data[id] = rkps_new;
+#ifdef RKP_DEBUG
+        printk("rkpManager_execute: add a new stream %d to an empty list.\n", id);
+#endif
     }
     else
-    // 使用已经有的流
     {
-        u_int8_t id = (ntohs(tcp_hdr(skb) -> source) + ntohs(tcp_hdr(skb) -> dest)) & 0xFF;
-        struct rkpStream* rkps = rkpm -> data[id];
-        struct rkpStream* rkps_new;
+        rkpm -> data[id] -> prev = rkps_new;
+        rkps_new -> next = rkpm -> data[id];
+        rkpm -> data[id] = rkps_new;
 #ifdef RKP_DEBUG
-        printk("rkpStream_execute id %d\n", id);
+        printk("rkpManager_execute: add a new stream %d to an unempty list.\n", id);
 #endif
-        // 寻找流并插入
-        while(rkps != 0)
-            if(rkpStream_belongTo(rkps, skb))
-            {
-#ifdef RKP_DEBUG
-                printk("rkp-ua::rkpStream::rkpStream_execute: Target stream %u found.\n", id);
-#endif
-                return rkpStream_execute(rkps, skb);
-            }
-            else
-                rkps = rkps -> next;
-        // 如果没找到的话
-        printk("rkp-ua::rkpStream::rkpStream_execute: Target stream %u not found. Creat a new one.\n", id);
-        rkps_new = rkpStream_new(skb);
-        if(rkps_new == 0)
-            return NF_ACCEPT;
-        if(rkpm -> data[id] == 0)
-        {
-            rkpm -> data[id] = rkps_new;
-#ifdef RKP_DEBUG
-            printk("rkpManager_execute: add a new stream %d to an empty list.\n", id);
-#endif
-        }
-        else
-        {
-            rkpm -> data[id] -> prev = rkps_new;
-            rkps_new -> next = rkpm -> data[id];
-            rkpm -> data[id] = rkps_new;
-#ifdef RKP_DEBUG
-            printk("rkpManager_execute: add a new stream %d to an unempty list.\n", id);
-#endif
-        }
-        return rkpStream_execute(rkps_new, skb);
     }
+    return rkpStream_execute(rkps_new, skb);
 }
 
 void __rkpManager_refresh(unsigned long param)
