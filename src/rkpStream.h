@@ -7,24 +7,24 @@ struct rkpStream
 {
     enum
     {
-        __rkpStream_sniffing_end,       // 正在寻找 http 头的结尾或者 ua 的开始，这时 buff_scan 中不应该有包
-        __rkpStream_sniffing_ua,        // 已经找到 ua，正在寻找它的结尾，buff_scan 中可能有包
+        __rkpStream_sniffing_uaBegin,       // 正在寻找 http 头的结尾或者 ua 的开始，这时 buff_scan 中不应该有包
+        __rkpStream_sniffing_uaEnd,        // 已经找到 ua，正在寻找它的结尾，buff_scan 中可能有包
         __rkpStream_waiting             // 已经找到 ua 的结尾或者 http 头的结尾并且还没有 psh，接下来的包都直接放行
     } status;
     u_int32_t id[3];        // 按顺序存储客户地址、服务地址、客户端口、服务端口，已经转换字节序
     struct rkpPacket *buff_scan, *buff_disordered;      // 分别存储准备扫描的、因乱序而提前收到的数据包，都按照序号排好了
     u_int32_t seq_offset;       // 序列号的偏移。使得 buff_scan 中第一个字节的编号为零。
     bool active;                // 是否仍然活动，超过一定时间不活动的流会被销毁
-    unsigned scan_httpEnd_matched, scan_uaBegin_matched, scan_uaEnd_matched;      // 记录现在已经匹配了多少个字节
+    unsigned scan_httpEnd_matched, scan_uaBegin_matched, scan_uaEnd_matched;      // 记录现在已经匹配了多少个字节，由 __rkpStream_scan 设置
     unsigned char *scan_uaBegin_p, *scan_uaEnd_p;           // 在扫描到相关信息后，将信息填写到这里
     struct rkpStream *prev, *next;
 };
 
-struct rkpStream* rkpStream_new(const struct sk_buff*);   // 构造一个 rkpSteam
+struct rkpStream* rkpStream_new(const struct rkpPacket*);   // 构造一个 rkpSteam
 void rkpStream_delete(struct rkpStream*);
 
-bool rkpStream_belongTo(const struct rkpStream*, const struct sk_buff*);      // 判断一个数据包是否属于一个流
-unsigned rkpStream_execute(struct rkpStream*, struct sk_buff*);     // 已知一个数据包属于这个流后，处理这个数据包
+bool rkpStream_belongTo(const struct rkpStream*, const struct rkpPacket*);      // 判断一个数据包是否属于一个流
+unsigned rkpStream_execute(struct rkpStream*, struct rkpPacket*);     // 已知一个数据包属于这个流后，处理这个数据包
 
 int32_t __rkpStream_seq_scanEnd(struct rkpStream*);         // 返回 buff_scan 中最后一个数据包的后继的第一个字节的序列号
 
@@ -34,118 +34,79 @@ void __rkpStream_insert_end(struct rkpStream*, struct rkpPacket**, struct rkpPac
 bool __rkpStream_scan(struct rkpStream*, struct rkpPacket*);    // 对一个最新的包进行扫描
 void __rkpStream_modify(struct rkpStream*);                     // 在收集到完整的 ua 后，对 ua 进行修改
 
-struct rkpStream* rkpStream_new(const struct sk_buff* skb)
+struct rkpStream* rkpStream_new(const struct rkpPacket* rkpp)
 {
-#ifdef RKP_DEBUG
-    printk("rkp-ua: rkpStream_new start.\n");
-#endif
     struct rkpStream* rkps = rkpMalloc(sizeof(struct rkpStream));
-    struct rkpPacket* rkpp = rkpPacket_new(skb);
     if(rkps == 0)
         return 0;
-    rkps -> status = __rkpStream_sniffing_end;
-    rkps -> id[0] = ntohl(iph -> saddr);
-    rkps -> id[1] = ntohl(iph -> daddr);
-    rkps -> id[2] = (((u_int32_t)ntohs(tcph -> source)) << 16) + ntohs(tcph -> dest);
+    rkps -> status = __rkpStream_sniffing_uaBegin;
+    memcpy(rkps -> id, rkpp -> lid, 3 * sizeof(u_int32_t));
     rkps -> buff_scan = rkps -> buff_disordered = 0;
     rkps -> seq_offset = ntohl(tcp_hdr(skb) -> seq);
     rkps -> active = true;
-    rkps -> scan_matched = 0;
+    rkps -> scan_httpEnd_matched = rkps -> scan_uaBegin_matched = rkps -> scan_uaEnd_matched = 0;
+    rkps -> scan_uaBegin_p = rkps -> scan_uaEnd_p = 0;
     rkps -> prev = rkps -> next = 0;
-#ifdef RKP_DEBUG
-    printk("rkp-ua: rkpStream_new end.\n");
-#endif
+    if(verbose)
+        printk("rkpStream_new\n");
     return rkps;
 }
 void rkpStream_delete(struct rkpStream* rkps)
 {
-#ifdef RKP_DEBUG
-    printk("rkp-ua: rkpStream_delete start.\n");
-#endif
-    struct rkpPacket* p;
-    for(p = rkps -> buff_scan; p != 0;)
+    struct rkpPacket* rkpp;
+    for(rkpp = rkps -> buff_scan; p != 0;)
     {
-        struct rkpPacket* p2 = p;
-        p = p -> next;
-        rkpPacket_drop(p2);
+        struct rkpPacket* rkpp2 = rkpp;
+        rkpp = rkpp -> next;
+        rkpPacket_drop(rkpp2);
     }
-    for(p = rkps -> buff_disordered; p != 0;)
+    for(rkpp = rkps -> buff_disordered; rkpp != 0;)
     {
-        struct rkpPacket* p2 = p;
-        p = p -> next;
-        rkpPacket_drop(p2);
+        struct rkpPacket* rkpp2 = rkpp;
+        rkpp = rkpp -> next;
+        rkpPacket_drop(rkpp2);
     }
     rkpFree(rkps);
-#ifdef RKP_DEBUG
-    printk("rkp-ua: rkpStream_delete end.\n");
-#endif
+    if(verbose)
+        printk("rkpStream_delete\n");
 }
 
-bool rkpStream_belongTo(const struct rkpStream* rkps, const struct sk_buff* skb)
+bool rkpStream_belongTo(const struct rkpStream* rkps, const struct rkpPacket* rkpp)
 {
-#ifdef RKP_DEBUG
-    printk("rkp-ua: rkpStream_belongTo start.\n");
-    printk("\tsyn %d ack %d\n", tcp_hdr(skb) -> syn, tcp_hdr(skb) -> ack);
-    printk("\tsport %d dport %d\n", ntohs(tcp_hdr(skb) -> source), ntohs(tcp_hdr(skb) -> dest));
-    printk("\tsip %u dip %u\n", ntohl(ip_hdr(skb) -> saddr), ntohl(ip_hdr(skb) -> daddr));
-    printk("\tid %u %u %u", rkps -> id[0], rkps -> id[1], rkps -> id[2]);
-#endif
-    bool rtn = rkps -> id[0] == ntohl(ip_hdr(skb) -> saddr)
-            && rkps -> id[1] == ntohl(ip_hdr(skb) -> daddr)
-            && rkps -> id[2] == (((u_int32_t)ntohs(tcp_hdr(skb) -> source)) << 16) + ntohs(tcp_hdr(skb) -> dest);
-#ifdef RKP_DEBUG
-    printk("rkp-ua: rkpStream_belongTo end, will return %d.\n", rtn);
-#endif
-    return rtn;
+    return memcmp(rkps -> id, rkpp -> lid, 3 * sizeof(u_int32_t)) == 0;
 }
-unsigned rkpStream_execute(struct rkpStream* rkps, struct sk_buff* skb)
+unsigned rkpStream_execute(struct rkpStream* rkps, struct rkpPacket* rkpp)
 // 不要害怕麻烦，咱们把每一种情况都慢慢写一遍。
+// 以下假定：包是客户端发到服务端的，并且带有应用层数据
 {
-    struct rkpPacket* p = rkpPacket_new(skb);
-#ifdef RKP_DEBUG
-    printk("rkp-ua: rkpStream_execute start.\n");
-#endif
+    if(verbose)
+        printk("rkp-ua: rkpStream_execute start, judging...\n");
 
     // 肯定需要更新时间
     rkps -> active = true;
-
-    // 不携带应用层数据的情况。直接接受即可。以后的情况，都是含有应用层数据的包了。
-    if(rkpPacket_appLen(p) == 0)
-    {
-#ifdef RKP_DEBUG
-        printk("\tblank packet judged.\n");
-#endif
-        rkpPacket_delete(p);
-        return NF_ACCEPT;
-    }
     
     // 接下来从小到大考虑数据包的序列号的几种情况
     // 已经发出的数据包，直接忽略
-    if(rkpPacket_seq(p) - rkps -> seq_offset < 0)
+    if(rkpPacket_seq(rkpp) - rkps -> seq_offset < 0)
     {
-#ifdef RKP_DEBUG
-        printk("\tsent packet judged.\n");
-#endif
-        rkpPacket_delete(p);
+        if(verbose)
+            printk("\tThe packet is re-transforming or has been modified, return NF_ACCEPT.\n");
         return NF_ACCEPT;
     }
     // 已经放到 buff_scan 中的数据包，丢弃
-    if(rkpPacket_seq(p) - rkps -> seq_offset < __rkpStream_seq_scanEnd(rkps))
+    if(rkpPacket_seq(rkpp) - rkps -> seq_offset < __rkpStream_seq_scanEnd(rkps))
     {
-#ifdef RKP_DEBUG
-        printk("\tcaptured packet judged.\n");
-#endif
-        rkpPacket_delete(p);
+        if(verbose)
+            printk("\tThe packet with same seq has been captured, return NF_DROP.\n");
         return NF_DROP;
     }
     // 恰好是 buff_scan 的后继数据包，这种情况比较麻烦，写到最后
     // 乱序导致还没接收到前继的数据包，放到 buff_disordered
-    if(rkpPacket_seq(p) - rkps -> seq_offset > __rkpStream_seq_scanEnd(rkps))
+    if(rkpPacket_seq(rkpp) - rkps -> seq_offset > __rkpStream_seq_scanEnd(rkps))
     {
-#ifdef RKP_DEBUG
-        printk("\tdisordered packet judged.\n");
-#endif
-        __rkpStream_insert_auto(rkps, &(rkps -> buff_disordered), p);
+        if(verbose)
+            printk("\tThe packet is disordered, return NF_STOLEN.\n");
+        Stream_insert_auto(rkps, &(rkps -> buff_disordered), rkpp);
         return NF_STOLEN;
     }
 
@@ -153,11 +114,28 @@ unsigned rkpStream_execute(struct rkpStream* rkps, struct sk_buff* skb)
     if(rkpPacket_seq(p) - rkps -> seq_offset == __rkpStream_seq_scanEnd(rkps))
     {
         // 因为一会儿可能还需要统一考虑 buff_disordered 中的包，因此不直接 return，将需要的返回值写到这里，最后再 return
-        // 可以先假定 rtn 是 NF_STOLEN，只有在以下几种情况下才会将返回值改为 NF_ACCEPT
-        //      * sniffing 状态下，扫描到了 http 头的结尾，无论是否改 ua，反正都是要 accept
+        unsigned rtn;
+
+        // 接下来分析几种情况
+        //      * sniffing_uaBegin 状态下，先扫描这个数据包，再看情况处理，因此不再单独写出。
+        //        需要考虑的方面有：
+        //          * 是否扫描到了 uaBgin，通过 uaBegin_matched 是否与 str_uaBgin 长度相等判断
+        //          * 在扫描到了 uaBgin 的前提下，是否扫描到了 uaEnd，通过 uaEnd_matched 是否与 str_uaEnd 长度相等判断
+        //          * 在扫描到了 uaBgin 的前提下，是否得到了 ua 的开头位置。这是因为，可能一个数据包的结尾恰好是 `User-Agent: `，结果扫描到了 uaBegin 但是 ua 的开头在下一个数据包。通过 uaBegin_p 是否为非零值判断
+        //          * 是否扫描到了 headEnd，这三个通过对比 matched 来确定，通过 headEnd_matched 是否与 str_headEnd 长度相等判断
+        //          * 是否有 psh
+        //        这些方面可能的组合（包括一些标准的 HTTP 协议不应该出现的组合）和处理办法为：
+        //          1. 什么都没有扫描到，没有 psh。更新 seq_offset，返回 NF_ACCEPT；
+        //          2. 什么都没有扫描到，有 psh。更新 seq_offset，返回 NF_ACCEPT；
+        //          3. 扫描到了 headEnd（其它都没有扫描到，下同），没有 psh。状态切换为 waiting，更新 seq_offset，返回 NF_ACCEPT；
+        //          4. 扫描到了 headEnd，有 psh。更新 seq_offset，返回 NF_ACCEPT；
+        //          5. 扫描到了 uaBegin，没有 psh。状态切换为 sniffing_uaEnd，更新 seq_offset，返回 NF_ACCEPT；
+        //          6. 扫描到了 uaBegin，有 psh。更新 seq_offset，返回 NF_ACCEPT；
+        //          7. 扫描到了 uaBegin、，没有 psh。状态切换为 sniffing_uaEnd，更新 seq_offset，返回 NF_ACCEPT；
+        //          3. 扫描到了 uaBegin、uaEnd，没有 psh
         //      * sniffing 状态下，没有读到 http 头的结尾，但是有设置 psh
         //      * waiting 状态下
-        unsigned rtn = NF_STOLEN;
+
 #ifdef RKP_DEBUG
         printk("\tdesired packet judged.\n");
         rkpPacket_makeWriteable(p);

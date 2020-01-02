@@ -6,16 +6,17 @@ _Static_assert(sizeof(unsigned long) >= sizeof(void*), "ulong is too short.");
 
 static bool autocapture = true;
 module_param(autocapture, bool, 0);
-
 static char* str_preserve[128];
 static unsigned n_str_preserve = 0;
 module_param_array(str_preserve, charp, &n_str_preserve, 0);
-
 static unsigned mark_capture = 0x100;
 module_param(mark_capture, uint, 0);
-
 static unsigned time_keepalive = 1200;
 module_param(time_keepalive, uint, 0);
+static unsigned len_ua = 2;
+module_param(len_ua, uint, 0);
+static bool verbose = false;
+module_param(verbose, bool, 0);
 
 bool rkpSettings_capture(const struct sk_buff*);
 

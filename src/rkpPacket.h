@@ -2,7 +2,7 @@
 #include "common.h"
 
 struct rkpPacket
-// 存储一个个数据包的类，完全被 rkpStream 包裹
+// 存储一个个数据包的类，完全被 rkpStream 和 rkpManager 包裹
 {
     struct rkpPacket *prev, *next;
     struct sk_buff* skb;
@@ -28,7 +28,7 @@ bool rkpPacket_psh(struct rkpPacket*);
 bool rkpPacket_syn(struct rkpPacket*);
 
 void rkpPacket_csum(struct rkpPacket*);
-bool rkpPacket_makeWriteable(struct rkpPacket*);
+bool __rkpPacket_makeWriteable(struct rkpPacket*);
 
 struct rkpPacket* rkpPacket_new(struct sk_buff* skb)
 {
@@ -41,6 +41,11 @@ struct rkpPacket* rkpPacket_new(struct sk_buff* skb)
     rkpp -> lid[0] = rkpPacket_sip(rkpp);
     rkpp -> lid[1] = rkpPacket_dip(rkpp);
     rkpp -> lid[2] = (rkpPacket_sport(rkpp) << 16) + rkpPacket_dport(rkpp);
+    if(!__rkpPacket_makeWriteable(rkpp))
+    {
+        rkpFree(rkpp);
+        return 0;
+    }
     return p;
 }
 void rkpPacket_send(struct rkpPacket* p)
@@ -118,7 +123,7 @@ void rkpPacket_csum(struct rkpPacket* p)
     tcph -> check = csum_tcpudp_magic(iph -> saddr, iph -> daddr, ntohs(iph -> tot_len) - iph -> ihl * 4, IPPROTO_TCP, p -> skb -> csum);
 }
 
-bool rkpPacket_makeWriteable(struct rkpPacket* rkpp)
+bool __rkpPacket_makeWriteable(struct rkpPacket* rkpp)
 {
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 19, 0)
 	if(skb_ensure_writable(rkpp -> skb, rkpPacket_appEnd(rkpp) - (unsigned char*)rkpp -> skb -> data) || rkpp -> skb -> data == 0)
