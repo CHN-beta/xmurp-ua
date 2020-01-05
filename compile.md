@@ -105,3 +105,18 @@ ln -s target-mipsel_1004kc+dsp_uClibc-1.0.x target-mips_1004kc+dsp_uClibc-1.0.x
 cd ..
 make package/xmurp-ua/compile V=sc ARCH=mips CROSS_COMPILE=/home/chn/Desktop/PandoraBox-SDK-ralink-mt7621_gcc-5.5.0_uClibc-1.0.x.Linux-x86_64-2019-02-01-git-0231ad4b5/staging_dir/toolchain-mipsel_1004kc+dsp_gcc-5.5.0_uClibc-1.0.x/bin/mipsel-openwrt-linux-
 ```
+
+#### objtool 缺失
+
+今天在 deepin 上编译时，遇到了下面的问题：
+
+```
+make[4]: *** No rule to make target 'tools/objtool/objtool', needed by '/home/chn/repo/xmurp-ua/debug/openwrt-sdk-18.06.5-x86-64_gcc-7.3.0_musl.Linux-x86_64/build_dir/target-x86_64_musl/linux-x86_64/xmurp-ua/xmurp-ua.o'.  Stop.
+```
+
+解决办法是，把系统的 objtool 复制过来，然后再编译。
+
+```bash
+mkdir ./build_dir/target-x86_64_musl/linux-x86_64/linux-4.14.151/tools/objtool
+cp /usr/src/linux-headers-4.15.0-30deepin-generic/tools/objtool/objtool ./build_dir/target-x86_64_musl/linux-x86_64/linux-4.14.151/tools/objtool/
+```
