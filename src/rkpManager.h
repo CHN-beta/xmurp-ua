@@ -20,7 +20,7 @@ void __rkpManager_unlock(struct rkpManager*, unsigned long);
 
 struct rkpManager* rkpManager_new(void)
 {
-    struct rkpManager* rkpm = rkpMalloc(sizeof(struct rkpManager));
+    struct rkpManager* rkpm = (struct rkpManager*)rkpMalloc(sizeof(struct rkpManager));
     if(rkpm == 0)
         return 0;
     memset(rkpm -> data, 0, sizeof(struct rkpStream*) * 256);
@@ -57,68 +57,58 @@ int rkpManager_execute(struct rkpManager* rkpm, struct sk_buff* skb)
     unsigned long flag;
     int rtn;
     struct rkpPacket* rkpp = rkpPacket_new(skb);
+    if(rkpPacket_appLen(rkpp) == 0)
+    {
+        rkpPacket_delete(rkpp);
+        return NF_ACCEPT;
+    }
     __rkpManager_lock(rkpm, &flag);
     rtn = __rkpManager_execute(rkpm, rkpp);
+    if(debug)
+    {
+        if(rtn == NF_ACCEPT)
+            printk("returned NF_ACCEPT.\n");
+        else if(rtn == NF_DROP)
+            printk("returned NF_DROP.\n");
+        else if(rtn == NF_STOLEN)
+            printk("returned NF_STOLEN.\n");
+    }
     __rkpManager_unlock(rkpm, flag);
     if(rtn == NF_ACCEPT || rtn == NF_DROP)
         rkpPacket_delete(rkpp);
+    if(debug)
+        skb -> mark |= 0x10;
     return rtn;
 }
 int __rkpManager_execute(struct rkpManager* rkpm, struct rkpPacket* rkpp)
 {
-#ifdef RKP_DEBUG
-    printk("rkp-ua: rkpManager_execute start.\n");
-    printk("\tsyn %d\n", rkpPacket_syn(rkpp));
-    printk("\tsport %d dport %d\n", rkpPacket_sport(rkpp), rkpPacket_dport(rkpp));
-    printk("\tid %d\n", rkpp -> sid);
-#endif
-
     struct rkpStream *rkps, *rkps_new;
 
     // 搜索是否有符合条件的流
     for(rkps = rkpm -> data[rkpp -> sid]; rkps != 0; rkps = rkps -> next)
         if(rkpStream_belongTo(rkps, rkpp))       // 找到了，执行即可
-        {
-#ifdef RKP_DEBUG
-            printk("__rkpManager_execute: found target stream.\n");
-#endif
             return rkpStream_execute(rkps, rkpp);
-        }
 
     // 如果运行到这里的话，那就是没有找到了，新建一个流再执行
-#ifdef RKP_DEBUG
-    printk("__rkpManager_execute: target stream not found, create a new one. \n");
-#endif
     rkps_new = rkpStream_new(rkpp);
     if(rkps_new == 0)
         return NF_ACCEPT;
     if(rkpm -> data[rkpp -> sid] == 0)
-    {
-#ifdef RKP_DEBUG
-        printk("rkpManager_execute: add a new stream %d to an empty list.\n", id);
-#endif
         rkpm -> data[rkpp -> sid] = rkps_new;
-    }
     else
     {
-#ifdef RKP_DEBUG
-        printk("rkpManager_execute: add a new stream %d to an unempty list.\n", id);
-#endif
         rkpm -> data[rkpp -> sid] -> prev = rkps_new;
         rkps_new -> next = rkpm -> data[rkpp -> sid];
         rkpm -> data[rkpp -> sid] = rkps_new;
     }
-    return rkpStream_execute(rkps_new, skb);
+    return rkpStream_execute(rkps_new, rkpp);
 }
 
 void __rkpManager_refresh(unsigned long param)
 {
     unsigned i;
     unsigned long flag;
-    struct rkpManager*& rkpm = (struct rkpManager*)param;
-#ifdef RKP_DEBUG
-    printk("__rkpManager_refresh start.\n");
-#endif
+    struct rkpManager* rkpm = (struct rkpManager*)param;
     __rkpManager_lock(rkpm, &flag);
     for(i = 0; i < 256; i++)
     {
@@ -145,9 +135,6 @@ void __rkpManager_refresh(unsigned long param)
     rkpm -> timer.expires = jiffies + time_keepalive * HZ;
     add_timer(&rkpm -> timer);
     __rkpManager_unlock(rkpm, flag);
-#ifdef RKP_DEBUG
-    printk("__rkpManager_refresh end.\n");
-#endif
 }
 
 void __rkpManager_lock(struct rkpManager* rkpm, unsigned long* flagp)

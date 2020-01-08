@@ -6,15 +6,11 @@ static struct rkpManager* rkpm;
 unsigned int hook_funcion(void *priv, struct sk_buff *skb, const struct nf_hook_state *state)
 {
 	unsigned rtn;
-	static bool crashed = false;
 
 	static unsigned n_skb_captured = 0, n_skb_captured_lastPrint = 1;
 
 	if(!rkpSettings_capture(skb))
 		return NF_ACCEPT;
-#ifdef RKP_DEBUG
-	printk("hook_function captured a packet.\n");
-#endif
 	rtn = rkpManager_execute(rkpm, skb);
 
 	n_skb_captured++;
@@ -23,9 +19,6 @@ unsigned int hook_funcion(void *priv, struct sk_buff *skb, const struct nf_hook_
 		printk("rkp-ua: Captured %d packets.\n", n_skb_captured);
 		n_skb_captured_lastPrint *= 2;
 	}
-#ifdef RKP_DEBUG
-	printk("hook_function end.\n");
-#endif
 	return rtn;
 }
 
@@ -35,9 +28,9 @@ static int __init hook_init(void)
 
 	rkpm = rkpManager_new();
 
-	memcpy(str_ua_rkp, "RKP/", 4);
-	memcpy(str_ua_rkp + 4, VERSION, 2);
-	memcpy(str_ua_rkp + 6, ".0", 3);
+	memcpy(str_uaRkp, "RKP/", 4);
+	memcpy(str_uaRkp + 4, VERSION, 2);
+	memcpy(str_uaRkp + 6, ".0", 3);
 
 	nfho.hook = hook_funcion;
 	nfho.pf = NFPROTO_IPV4;
@@ -52,12 +45,12 @@ static int __init hook_init(void)
 
 	printk("rkp-ua: Started, version %s\n", VERSION);
 	printk("rkp-ua: nf_register_hook returnd %d.\n", ret);
-	printk("rkp-ua: autocapture=%c, mark_capture=0x%x, mark_first=0x%x.\n",
-			'n' + autocapture * ('y' - 'n'), mark_capture, mark_first);
+	printk("rkp-ua: autocapture=%c, mark_capture=0x%x\n",
+			'n' + autocapture * ('y' - 'n'), mark_capture);
 	printk("rkp-ua: str_preserve: %d\n", n_str_preserve);
 	for(ret = 0; ret < n_str_preserve; ret++)
 		printk("\t%s\n", str_preserve[ret]);
-	printk("str_ua_rkp: %s\n", str_ua_rkp);
+	printk("str_ua_rkp: %s\n", str_uaRkp);
 
 	return 0;
 }

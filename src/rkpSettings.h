@@ -17,6 +17,8 @@ static unsigned len_ua = 2;
 module_param(len_ua, uint, 0);
 static bool verbose = false;
 module_param(verbose, bool, 0);
+static bool debug = false;
+module_param(debug, bool, 0);
 
 bool rkpSettings_capture(const struct sk_buff*);
 

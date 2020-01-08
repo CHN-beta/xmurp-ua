@@ -15,10 +15,10 @@
 #include <linux/time.h>
 #include <linux/mutex.h>
 
-const static unsigned char* str_ua_begin = "User-Agent: ";
-const static unsigned char* str_ua_end = "\r\n";
-const static unsigned char* str_head_end = "\r\n\r\n";
-static unsigned char str_ua_rkp[16];
+const static unsigned char* str_uaBegin = "User-Agent: ";
+const static unsigned char* str_uaEnd = "\r\n";
+const static unsigned char* str_headEnd = "\r\n\r\n";
+static unsigned char str_uaRkp[16];
 
 void* rkpMalloc(unsigned size)
 {
