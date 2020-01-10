@@ -1,5 +1,5 @@
-#pragma once
 #include "common.h"
+#pragma once
 
 _Static_assert(sizeof(int) == 4, "int is not 4 bit.");
 _Static_assert(sizeof(unsigned long) >= sizeof(void*), "ulong is too short.");

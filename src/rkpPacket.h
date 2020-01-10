@@ -1,5 +1,5 @@
-#pragma once
 #include "common.h"
+#pragma once
 
 struct rkpPacket
 // 存储一个个数据包的类，完全被 rkpStream 和 rkpManager 包裹

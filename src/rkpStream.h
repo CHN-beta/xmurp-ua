@@ -13,7 +13,7 @@ struct rkpStream
     } status;
     u_int32_t id[3];                            // 按顺序存储客户地址、服务地址、客户端口、服务端口，已经转换字节序
     struct rkpPacket *buff_scan, *buff_disordered;      // 分别存储准备扫描的、因乱序而提前收到的数据包，都按照序号排好了
-    int32_t seq_offset;                         // 序列号的偏移。使得 buff_scan 中第一个字节的编号为零。
+    int32_t seq_offset;                         // 序列号的偏移。使得 buff_scan 中第一个字节的编号为零。在 rkpStream 中，序列号基本使用相对值；但在传给下一层时，基本使用绝对值
     bool active;                                // 是否仍然活动，流每次处理的时候会置为 true，每隔一段时间会删除标志为 false（说明它在这段时间里没有活动）的流，将标志为 true 的流的标志也置为 false。
     unsigned scan_headEnd_matched, scan_uaBegin_matched, scan_uaEnd_matched;      // 记录现在已经匹配了多少个字节，由 __rkpStream_scan 设置，但可以由其它过程置零
     unsigned char *scan_uaBegin_p, *scan_uaEnd_p;       // 记录扫描的一些结果，由 __rkpStream_scan 设置，但可以由其它过程置零

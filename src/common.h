@@ -1,4 +1,3 @@
-#pragma once
 #include <linux/module.h>
 #include <linux/version.h>
 #include <linux/kmod.h>
@@ -14,6 +13,7 @@
 #include <linux/moduleparam.h>
 #include <linux/time.h>
 #include <linux/mutex.h>
+#pragma once
 
 const static unsigned char* str_uaBegin = "User-Agent: ";
 const static unsigned char* str_uaEnd = "\r\n";
