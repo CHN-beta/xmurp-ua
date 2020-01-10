@@ -11,6 +11,8 @@ static unsigned n_str_preserve = 0;
 module_param_array(str_preserve, charp, &n_str_preserve, 0);
 static unsigned mark_capture = 0x100;
 module_param(mark_capture, uint, 0);
+static unsigned mark_ack = 0x200;
+module_param(mark_ack, uint, 0);
 static unsigned time_keepalive = 1200;
 module_param(time_keepalive, uint, 0);
 static unsigned len_ua = 2;
@@ -21,6 +23,7 @@ static bool debug = false;
 module_param(debug, bool, 0);
 
 bool rkpSettings_capture(const struct sk_buff*);
+bool rkpSettings_ack(const struct sk_buff*);
 
 bool rkpSettings_capture(const struct sk_buff* skb)
 {
@@ -30,6 +33,8 @@ bool rkpSettings_capture(const struct sk_buff* skb)
     }
     else
     {
+        if(rkpSettings_ack(skb))
+            return true;
         if(ip_hdr(skb) -> protocol != IPPROTO_TCP)
             return false;
         else if(ntohs(tcp_hdr(skb) -> dest) != 80)
@@ -39,5 +44,26 @@ bool rkpSettings_capture(const struct sk_buff* skb)
             return false;
         else
             return true;
+    }
+}
+bool rkpSettings_ack(const struct sk_buff* skb)
+{
+    if(!autocapture)
+    {
+        return (skb -> mark & mark_ack) == mark_ack;
+    }
+    else
+    {
+        if(ip_hdr(skb) -> protocol != IPPROTO_TCP)
+            return false;
+        else if(ntohs(tcp_hdr(skb) -> source) != 80)
+            return false;
+        else if((ntohl(ip_hdr(skb) -> daddr) & 0xFFFF0000) != (192 << 24) + (168 << 16)
+                || (ntohl(ip_hdr(skb) -> saddr) & 0xFFFF0000) == (192 << 24) + (168 << 16))
+            return false;
+        else if(tcp_hdr(skb) -> ack)
+            return true;
+        else
+            return false;
     }
 }

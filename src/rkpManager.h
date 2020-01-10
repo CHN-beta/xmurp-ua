@@ -3,7 +3,7 @@
 
 struct rkpManager
 {
-    struct rkpStream* data[256];        // 按照首包的两端口之和的低 8 位放置
+    struct rkpStream* data[256];        // 按照两端口之和的低 8 位索引
     spinlock_t lock;                    // 线程锁
     struct timer_list timer;            // 定时器，用来定时清理不需要的流
 };

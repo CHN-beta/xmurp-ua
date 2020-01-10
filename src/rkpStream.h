@@ -17,6 +17,7 @@ struct rkpStream
     bool active;                                // 是否仍然活动，流每次处理的时候会置为 true，每隔一段时间会删除标志为 false（说明它在这段时间里没有活动）的流，将标志为 true 的流的标志也置为 false。
     unsigned scan_headEnd_matched, scan_uaBegin_matched, scan_uaEnd_matched;      // 记录现在已经匹配了多少个字节，由 __rkpStream_scan 设置，但可以由其它过程置零
     unsigned char *scan_uaBegin_p, *scan_uaEnd_p;       // 记录扫描的一些结果，由 __rkpStream_scan 设置，但可以由其它过程置零
+    struct rkpMap* map;
     struct rkpStream *prev, *next;
 };
 
@@ -47,6 +48,7 @@ struct rkpStream* rkpStream_new(const struct rkpPacket* rkpp)
     rkps -> active = true;
     rkps -> scan_headEnd_matched = rkps -> scan_uaBegin_matched = rkps -> scan_uaEnd_matched = 0;
     rkps -> scan_uaBegin_p = rkps -> scan_uaEnd_p = 0;
+    rkps -> map = 0;
     rkps -> prev = rkps -> next = 0;
     return rkps;
 }
@@ -55,18 +57,8 @@ void rkpStream_delete(struct rkpStream* rkps)
     struct rkpPacket* rkpp;
     if(debug)
         printk("rkpStream_delete\n");
-    for(rkpp = rkps -> buff_scan; rkpp != 0;)
-    {
-        struct rkpPacket* rkpp2 = rkpp;
-        rkpp = rkpp -> next;
-        rkpPacket_drop(rkpp2);
-    }
-    for(rkpp = rkps -> buff_disordered; rkpp != 0;)
-    {
-        struct rkpPacket* rkpp2 = rkpp;
-        rkpp = rkpp -> next;
-        rkpPacket_drop(rkpp2);
-    }
+    rkpPacket_deletel(&rkps -> buff_scan);
+    rkpPacket_deletel(&rkps -> buff_disordered);
     rkpFree(rkps);
 }
 
@@ -85,7 +77,7 @@ unsigned rkpStream_execute(struct rkpStream* rkps, struct rkpPacket* rkpp)
     rkps -> active = true;
     
     // 接下来从小到大考虑数据包的序列号的几种情况
-    // 已经发出的数据包，直接忽略
+    // 已经发出的数据包，使用已有的映射修改
     if(rkpPacket_seq(rkpp, rkps -> seq_offset) < 0)
     {
         if(debug)

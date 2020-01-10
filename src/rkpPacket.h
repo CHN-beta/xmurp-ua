@@ -8,9 +8,10 @@ struct rkpPacket
     struct sk_buff* skb;
     u_int8_t sid;
     u_int32_t lid[3];
+    bool ack;
 };
 
-struct rkpPacket* rkpPacket_new(struct sk_buff*);
+struct rkpPacket* rkpPacket_new(struct sk_buff*, bool);
 void rkpPacket_send(struct rkpPacket*);
 void rkpPacket_delete(struct rkpPacket*);
 void rkpPacket_drop(struct rkpPacket*);
@@ -19,13 +20,14 @@ unsigned char* rkpPacket_appBegin(const struct rkpPacket*);
 unsigned char* rkpPacket_appEnd(const struct rkpPacket*);
 unsigned rkpPacket_appLen(const struct rkpPacket*);
 int32_t rkpPacket_seq(const struct rkpPacket*, const int32_t);
-int32_t rkpPacket_ack(const struct rkpPacket*, const int32_t);
+int32_t rkpPacket_seqAck(const struct rkpPacket*, const int32_t);
 u_int32_t rkpPacket_sip(const struct rkpPacket*);
 u_int32_t rkpPacket_dip(const struct rkpPacket*);
 u_int16_t rkpPacket_sport(const struct rkpPacket*);
 u_int16_t rkpPacket_dport(const struct rkpPacket*);
 bool rkpPacket_psh(const struct rkpPacket*);
 bool rkpPacket_syn(const struct rkpPacket*);
+bool rkpPacket_ack(const struct rkpPacket*);
 
 void rkpPacket_csum(struct rkpPacket*);
 bool __rkpPacket_makeWriteable(struct rkpPacket*);
@@ -43,17 +45,27 @@ void rkpPacket_sendl(struct rkpPacket**);
 void rkpPacket_deletel(struct rkpPacket**);
 void rkpPacket_dropl(struct rkpPacket**);
 
-struct rkpPacket* rkpPacket_new(struct sk_buff* skb)
+struct rkpPacket* rkpPacket_new(struct sk_buff* skb, bool ack)
 {
     struct rkpPacket* rkpp = rkpMalloc(sizeof(struct rkpPacket));
     if(rkpp == 0)
         return 0;
     rkpp -> prev = rkpp -> next = 0;
     rkpp -> skb = skb;
+    rkpp -> ack = ack;
     rkpp -> sid = (rkpPacket_sport(rkpp) + rkpPacket_dport(rkpp)) & 0xFF;
-    rkpp -> lid[0] = rkpPacket_sip(rkpp);
-    rkpp -> lid[1] = rkpPacket_dip(rkpp);
-    rkpp -> lid[2] = (rkpPacket_sport(rkpp) << 16) + rkpPacket_dport(rkpp);
+    if(!ack)
+    {
+        rkpp -> lid[0] = rkpPacket_sip(rkpp);
+        rkpp -> lid[1] = rkpPacket_dip(rkpp);
+        rkpp -> lid[2] = (rkpPacket_sport(rkpp) << 16) + rkpPacket_dport(rkpp);
+    }
+    else
+    {
+        rkpp -> lid[0] = rkpPacket_dip(rkpp);
+        rkpp -> lid[1] = rkpPacket_sip(rkpp);
+        rkpp -> lid[2] = (rkpPacket_dport(rkpp) << 16) + rkpPacket_sport(rkpp);
+    }
     if(!__rkpPacket_makeWriteable(rkpp))
     {
         rkpFree(rkpp);
@@ -96,7 +108,7 @@ int32_t rkpPacket_seq(const struct rkpPacket* p, const int32_t offset)
 {
     return (int32_t)ntohl(tcp_hdr(p -> skb) -> seq) - offset;
 }
-int32_t rkpPacket_ack(const struct rkpPacket* p, const int32_t offset)
+int32_t rkpPacket_seqAck(const struct rkpPacket* p, const int32_t offset)
 {
     return (int32_t)ntohl(tcp_hdr(p -> skb) -> ack) - offset;
 }
@@ -123,6 +135,10 @@ bool rkpPacket_psh(const struct rkpPacket* rkpp)
 bool rkpPacket_syn(const struct rkpPacket* rkpp)
 {
     return tcp_hdr(rkpp -> skb) -> syn;
+}
+bool rkpPacket_ack(const struct rkpPacket* rkpp)
+{
+    return tcp_hdr(rkpp -> skb) -> ack;
 }
 
 void rkpPacket_csum(struct rkpPacket* rkpp)
