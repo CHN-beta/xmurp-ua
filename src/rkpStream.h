@@ -399,9 +399,9 @@ unsigned rkpStream_execute(struct rkpStream* rkps, struct rkpPacket* rkpp)
 
 int32_t __rkpStream_seq_desired(const struct rkpStream* rkps)
 {
+    struct rkpPacket* rkpp = rkps -> buff_scan;
     if(debug)
         printk("rkpStream_seq_desired\n");
-    struct rkpPacket* rkpp = rkps -> buff_scan;
     if(rkpp == 0)
         return 0;
     else

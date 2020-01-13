@@ -1,1 +1,1 @@
-obj-${CONFIG_RKP_UA}	+= rkp-ua.o
+obj-${CONFIG_XMURP_UA}	+= xmurp-ua.o

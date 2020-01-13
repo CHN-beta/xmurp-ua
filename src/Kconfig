@@ -1,2 +1,2 @@
-config RKP_UA
-	tristate "rkp-ua"
+config XMURP_UA
+	tristate "xmurp-ua"

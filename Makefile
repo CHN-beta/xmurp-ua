@@ -1,8 +1,8 @@
 include $(TOPDIR)/rules.mk
 include $(INCLUDE_DIR)/kernel.mk
  
-PKG_NAME:=rkp-ua
-PKG_RELEASE:=33
+PKG_NAME:=xmurp-ua
+PKG_RELEASE:=99
  
 include $(INCLUDE_DIR)/package.mk
 
@@ -14,12 +14,12 @@ EXTRA_CFLAGS:= \
 MAKE_OPTS:=$(KERNEL_MAKE_FLAGS) \
 	SUBDIRS="$(PKG_BUILD_DIR)" \
 	EXTRA_CFLAGS="$(EXTRA_CFLAGS)" \
-	CONFIG_RKP_UA=m
+	CONFIG_XMURP_UA=m
 
-define KernelPackage/rkp-ua
+define KernelPackage/xmurp-ua
 	SUBMENU:=Other modules
-	TITLE:=rkp-ua
-	FILES:=$(PKG_BUILD_DIR)/rkp-ua.ko
+	TITLE:=xmurp-ua
+	FILES:=$(PKG_BUILD_DIR)/xmurp-ua.ko
 #	AUTOLOAD:=$(call AutoLoad, 99, rkp-ua)
 	KCONFIG:=
 endef
@@ -28,4 +28,4 @@ define Build/Compile
 	$(MAKE) -C "$(LINUX_DIR)" $(MAKE_OPTS) modules
 endef
 
-$(eval $(call KernelPackage,rkp-ua))
+$(eval $(call KernelPackage,xmurp-ua))
