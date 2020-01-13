@@ -1,5 +1,5 @@
 #pragma once
-#include "rkpStream.h"
+#include "common.h"
 
 struct rkpManager
 {
@@ -11,9 +11,9 @@ struct rkpManager
 struct rkpManager* rkpManager_new(void);
 void rkpManager_delete(struct rkpManager*);
 
-int rkpManager_execute(struct rkpManager*, struct sk_buff*);   // 处理一个数据包。返回值为 rkpStream_execute 的返回值。
-int __rkpManager_execute(struct rkpManager*, struct rkpPacket*);
-void __rkpManager_refresh(unsigned long);                       // 清理长时间不活动的流
+unsigned rkpManager_execute(struct rkpManager*, struct sk_buff*);   // 处理一个数据包。返回值为 rkpStream_execute 的返回值。
+unsigned __rkpManager_execute(struct rkpManager*, struct rkpPacket*);
+void __rkpManager_refresh(unsigned long);                       // 清理长时间不活动的流，参数实际上是 rkpm 的地址
 
 void __rkpManager_lock(struct rkpManager*, unsigned long*);
 void __rkpManager_unlock(struct rkpManager*, unsigned long);
@@ -21,6 +21,8 @@ void __rkpManager_unlock(struct rkpManager*, unsigned long);
 struct rkpManager* rkpManager_new(void)
 {
     struct rkpManager* rkpm = (struct rkpManager*)rkpMalloc(sizeof(struct rkpManager));
+    if(debug)
+        printk("rkpManager_new\n");
     if(rkpm == 0)
         return 0;
     memset(rkpm -> data, 0, sizeof(struct rkpStream*) * 256);
@@ -36,7 +38,10 @@ void rkpManager_delete(struct rkpManager* rkpm)
 {
     unsigned i;
     unsigned long flag;
+    if(debug)
+        printk("rkpManager_delete\n");
     __rkpManager_lock(rkpm, &flag);
+    del_timer(&rkpm -> timer);
     for(i = 0; i < 256; i++)
     {
         struct rkpStream* rkps = rkpm -> data[i];
@@ -47,22 +52,19 @@ void rkpManager_delete(struct rkpManager* rkpm)
             rkps = rkps2;
         }
     }
-    del_timer(&rkpm -> timer);
     __rkpManager_unlock(rkpm, flag);
     rkpFree(rkpm);
 }
 
-int rkpManager_execute(struct rkpManager* rkpm, struct sk_buff* skb)
+unsigned rkpManager_execute(struct rkpManager* rkpm, struct sk_buff* skb)
 {
     unsigned long flag;
-    int rtn;
-    struct rkpPacket* rkpp = rkpPacket_new(skb);
-    if(rkpPacket_appLen(rkpp) == 0)
-    {
-        rkpPacket_delete(rkpp);
-        return NF_ACCEPT;
-    }
+    unsigned rtn;
+    struct rkpPacket* rkpp;
+    if(debug)
+        printk("rkpManager_execute\n");
     __rkpManager_lock(rkpm, &flag);
+    rkpp = rkpPacket_new(skb, rkpSetting_ack(skb));
     rtn = __rkpManager_execute(rkpm, rkpp);
     if(debug)
     {
@@ -76,11 +78,9 @@ int rkpManager_execute(struct rkpManager* rkpm, struct sk_buff* skb)
     __rkpManager_unlock(rkpm, flag);
     if(rtn == NF_ACCEPT || rtn == NF_DROP)
         rkpPacket_delete(rkpp);
-    if(debug)
-        skb -> mark |= 0x10;
     return rtn;
 }
-int __rkpManager_execute(struct rkpManager* rkpm, struct rkpPacket* rkpp)
+unsigned __rkpManager_execute(struct rkpManager* rkpm, struct rkpPacket* rkpp)
 {
     struct rkpStream *rkps, *rkps_new;
 
@@ -109,6 +109,8 @@ void __rkpManager_refresh(unsigned long param)
     unsigned i;
     unsigned long flag;
     struct rkpManager* rkpm = (struct rkpManager*)param;
+    if(debug)
+        printk("rkpManager_refresh\n");
     __rkpManager_lock(rkpm, &flag);
     for(i = 0; i < 256; i++)
     {

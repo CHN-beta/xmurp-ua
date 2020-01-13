@@ -1,8 +1,8 @@
-#include "common.h"
 #pragma once
+#include "common.h"
 
-_Static_assert(sizeof(int) == 4, "int is not 4 bit.");
-_Static_assert(sizeof(unsigned long) >= sizeof(void*), "ulong is too short.");
+static_assert(sizeof(int) == 4, "int is not 4 bit.");
+static_assert(sizeof(unsigned long) >= sizeof(void*), "ulong is too short.");
 
 static bool autocapture = true;
 module_param(autocapture, bool, 0);
@@ -22,10 +22,10 @@ module_param(verbose, bool, 0);
 static bool debug = false;
 module_param(debug, bool, 0);
 
-bool rkpSettings_capture(const struct sk_buff*);
-bool rkpSettings_ack(const struct sk_buff*);
+bool rkpSetting_capture(const struct sk_buff*);
+bool rkpSetting_ack(const struct sk_buff*);
 
-bool rkpSettings_capture(const struct sk_buff* skb)
+bool rkpSetting_capture(const struct sk_buff* skb)
 {
     if(!autocapture)
     {
@@ -33,7 +33,7 @@ bool rkpSettings_capture(const struct sk_buff* skb)
     }
     else
     {
-        if(rkpSettings_ack(skb))
+        if(rkpSetting_ack(skb))
             return true;
         if(ip_hdr(skb) -> protocol != IPPROTO_TCP)
             return false;
@@ -46,7 +46,7 @@ bool rkpSettings_capture(const struct sk_buff* skb)
             return true;
     }
 }
-bool rkpSettings_ack(const struct sk_buff* skb)
+bool rkpSetting_ack(const struct sk_buff* skb)
 {
     if(!autocapture)
     {
@@ -61,9 +61,7 @@ bool rkpSettings_ack(const struct sk_buff* skb)
         else if((ntohl(ip_hdr(skb) -> daddr) & 0xFFFF0000) != (192 << 24) + (168 << 16)
                 || (ntohl(ip_hdr(skb) -> saddr) & 0xFFFF0000) == (192 << 24) + (168 << 16))
             return false;
-        else if(tcp_hdr(skb) -> ack)
-            return true;
         else
-            return false;
+            return tcp_hdr(skb) -> ack;
     }
 }

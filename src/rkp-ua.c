@@ -1,6 +1,6 @@
-#include "rkpManager.h"
+#include "common.h"
 
-static struct nf_hook_ops nfho;
+static struct nf_hook_ops nfho[3];		// 需要在 INPUT、OUTPUT、FORWARD 各挂一个
 static struct rkpManager* rkpm;
 
 unsigned int hook_funcion(void *priv, struct sk_buff *skb, const struct nf_hook_state *state)
@@ -9,14 +9,15 @@ unsigned int hook_funcion(void *priv, struct sk_buff *skb, const struct nf_hook_
 
 	static unsigned n_skb_captured = 0, n_skb_captured_lastPrint = 1;
 
-	if(!rkpSettings_capture(skb))
+	if(!rkpSetting_capture(skb))
 		return NF_ACCEPT;
 	rtn = rkpManager_execute(rkpm, skb);
 
 	n_skb_captured++;
 	if(n_skb_captured == n_skb_captured_lastPrint * 2)
 	{
-		printk("rkp-ua: Captured %d packets.\n", n_skb_captured);
+		if(verbose)
+			printk("rkp-ua: Captured %d packets.\n", n_skb_captured);
 		n_skb_captured_lastPrint *= 2;
 	}
 	return rtn;
@@ -25,6 +26,7 @@ unsigned int hook_funcion(void *priv, struct sk_buff *skb, const struct nf_hook_
 static int __init hook_init(void)
 {
 	int ret;
+	unsigned i;
 
 	rkpm = rkpManager_new();
 
@@ -32,15 +34,19 @@ static int __init hook_init(void)
 	memcpy(str_uaRkp + 4, VERSION, 2);
 	memcpy(str_uaRkp + 6, ".0", 3);
 
-	nfho.hook = hook_funcion;
-	nfho.pf = NFPROTO_IPV4;
-	nfho.hooknum = NF_INET_POST_ROUTING;
-	nfho.priority = NF_IP_PRI_RAW;
-
+	nfho[0].hooknum = NF_INET_LOCAL_IN;
+	nfho[1].hooknum = NF_INET_LOCAL_OUT;
+	nfho[2].hooknum = NF_INET_FORWARD;
+	for(i = 0; i < 3; i++)
+	{
+		nfho[i].hook = hook_funcion;
+		nfho[i].pf = NFPROTO_IPV4;
+		nfho[i].priority = NF_IP_PRI_MANGLE;
+	}
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4,13,0)
-    ret = nf_register_net_hook(&init_net, &nfho);
+    	ret = nf_register_net_hooks(&init_net, nfho, 3);
 #else
-    ret = nf_register_hook(&nfho);
+    	ret = nf_register_hooks(nfho, 3);
 #endif
 
 	printk("rkp-ua: Started, version %s\n", VERSION);
@@ -58,9 +64,9 @@ static int __init hook_init(void)
 static void __exit hook_exit(void)
 {
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4,13,0)
-    nf_unregister_net_hook(&init_net, &nfho);
+	nf_unregister_net_hooks(&init_net, nfho, 3);
 #else
-    nf_unregister_hook(&nfho);
+	nf_unregister_hooks(nfho, 3);
 #endif
 	if(rkpm != 0)
 		rkpManager_delete(rkpm);

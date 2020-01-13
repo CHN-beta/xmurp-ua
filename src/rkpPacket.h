@@ -1,5 +1,5 @@
-#include "common.h"
 #pragma once
+#include "common.h"
 
 struct rkpPacket
 // 存储一个个数据包的类，完全被 rkpStream 和 rkpManager 包裹
@@ -39,7 +39,7 @@ void rkpPacket_insert_begin(struct rkpPacket**, struct rkpPacket*);     // 在�
 void rkpPacket_insert_end(struct rkpPacket**, struct rkpPacket*);       // 在指定链表尾部插入一个包
 struct rkpPacket* rkpPacket_pop_begin(struct rkpPacket**);              // 将指定链表头部的包取出
 struct rkpPacket* rkpPacket_pop_end(struct rkpPacket**);                // 将指定链表尾部的包取出
-unsigned rkpPacket_num(const struct rkpPacket*);                        // 返回指定链表中包的数目
+unsigned rkpPacket_num(struct rkpPacket**);                       // 返回指定链表中包的数目
 
 void rkpPacket_sendl(struct rkpPacket**);
 void rkpPacket_deletel(struct rkpPacket**);
@@ -73,44 +73,44 @@ struct rkpPacket* rkpPacket_new(struct sk_buff* skb, bool ack)
     }
     return rkpp;
 }
-void rkpPacket_send(struct rkpPacket* p)
+void rkpPacket_send(struct rkpPacket* rkpp)
 {
-    if(dev_queue_xmit(p -> skb))
+    if(dev_queue_xmit(rkpp -> skb))
     {
         printk("rkp-ua: rkpPacket_new: Send failed. Drop it.\n");
-        kfree_skb(p -> skb);
+        kfree_skb(rkpp -> skb);
     }
-    rkpFree(p);
+    rkpFree(rkpp);
 }
-void rkpPacket_delete(struct rkpPacket* p)
+void rkpPacket_delete(struct rkpPacket* rkpp)
 {
-    rkpFree(p);
+    rkpFree(rkpp);
 }
-void rkpPacket_drop(struct rkpPacket* p)
+void rkpPacket_drop(struct rkpPacket* rkpp)
 {
-    kfree_skb(p -> skb);
-    rkpFree(p);
+    kfree_skb(rkpp -> skb);
+    rkpFree(rkpp);
 }
 
-unsigned char* rkpPacket_appBegin(const struct rkpPacket* p)
+unsigned char* rkpPacket_appBegin(const struct rkpPacket* rkpp)
 {
-    return ((unsigned char*)tcp_hdr(p -> skb)) + tcp_hdr(p -> skb) -> doff * 4;
+    return ((unsigned char*)tcp_hdr(rkpp -> skb)) + tcp_hdr(rkpp -> skb) -> doff * 4;
 }
-unsigned char* rkpPacket_appEnd(const struct rkpPacket* p)
+unsigned char* rkpPacket_appEnd(const struct rkpPacket* rkpp)
 {
-    return ((unsigned char*)ip_hdr(p -> skb)) + ntohs(ip_hdr(p -> skb) -> tot_len);
+    return ((unsigned char*)ip_hdr(rkpp -> skb)) + ntohs(ip_hdr(rkpp -> skb) -> tot_len);
 }
-unsigned rkpPacket_appLen(const struct rkpPacket* p)
+unsigned rkpPacket_appLen(const struct rkpPacket* rkpp)
 {
-    return ntohs(ip_hdr(p -> skb) -> tot_len) - ip_hdr(p -> skb) -> ihl * 4 - tcp_hdr(p -> skb) -> doff * 4;
+    return ntohs(ip_hdr(rkpp -> skb) -> tot_len) - ip_hdr(rkpp -> skb) -> ihl * 4 - tcp_hdr(rkpp -> skb) -> doff * 4;
 }
-int32_t rkpPacket_seq(const struct rkpPacket* p, const int32_t offset)
+int32_t rkpPacket_seq(const struct rkpPacket* rkpp, const int32_t offset)
 {
-    return (int32_t)ntohl(tcp_hdr(p -> skb) -> seq) - offset;
+    return (int32_t)ntohl(tcp_hdr(rkpp -> skb) -> seq) - offset;
 }
-int32_t rkpPacket_seqAck(const struct rkpPacket* p, const int32_t offset)
+int32_t rkpPacket_seqAck(const struct rkpPacket* rkpp, const int32_t offset)
 {
-    return (int32_t)ntohl(tcp_hdr(p -> skb) -> ack) - offset;
+    return (int32_t)ntohl(tcp_hdr(rkpp -> skb) -> ack_seq) - offset;
 }
 u_int32_t rkpPacket_sip(const struct rkpPacket* rkpp)
 {
@@ -147,8 +147,8 @@ void rkpPacket_csum(struct rkpPacket* rkpp)
     struct tcphdr* tcph = tcp_hdr(rkpp -> skb);
     tcph -> check = 0;
     iph -> check = 0;
-    iph -> check = ip_fast_csum((unsigned char*)iph, iph -> ihl);
     rkpp -> skb -> csum = skb_checksum(rkpp -> skb, iph -> ihl * 4, ntohs(iph -> tot_len) - iph -> ihl * 4, 0);
+    iph -> check = ip_fast_csum((unsigned char*)iph, iph -> ihl);
     tcph -> check = csum_tcpudp_magic(iph -> saddr, iph -> daddr, ntohs(iph -> tot_len) - iph -> ihl * 4, IPPROTO_TCP, rkpp -> skb -> csum);
 }
 
@@ -175,16 +175,12 @@ void rkpPacket_insert_auto(struct rkpPacket** buff, struct rkpPacket* rkpp, int3
 {
     // 如果链表是空的，那么就直接加进去
     if(*buff == 0)
-    {
         *buff = rkpp;
-        rkpp -> prev = rkpp -> next = 0;
-    }
     // 又或者，要插入的包需要排到第一个
     else if(rkpPacket_seq(*buff, offset) >= rkpPacket_seq(rkpp, offset))
     {
         (*buff) -> prev = rkpp;
         rkpp -> next = *buff;
-        rkpp -> prev = 0;
         *buff = rkpp;
     }
     // 接下来寻找最后一个序列号小于 rkpp 的包，插入到它的后面。
@@ -203,10 +199,7 @@ void rkpPacket_insert_auto(struct rkpPacket** buff, struct rkpPacket* rkpp, int3
 void rkpPacket_insert_begin(struct rkpPacket** buff, struct rkpPacket* rkpp)
 {
     if(*buff == 0)
-    {
         *buff = rkpp;
-        rkpp -> next = rkpp -> prev = 0;
-    }
     else
     {
         (*buff) -> prev = rkpp;
@@ -217,10 +210,7 @@ void rkpPacket_insert_begin(struct rkpPacket** buff, struct rkpPacket* rkpp)
 void rkpPacket_insert_end(struct rkpPacket** buff, struct rkpPacket* rkpp)
 {
     if(*buff == 0)
-    {
         *buff = rkpp;
-        rkpp -> next = rkpp -> prev = 0;
-    }
     else
     {
         struct rkpPacket* rkpp2 = *buff;
@@ -228,7 +218,6 @@ void rkpPacket_insert_end(struct rkpPacket** buff, struct rkpPacket* rkpp)
             rkpp2 = rkpp2 -> next;
         rkpp2 -> next = rkpp;
         rkpp -> prev = rkpp2;
-        rkpp -> next = 0;
     }
 }
 struct rkpPacket* rkpPacket_pop_begin(struct rkpPacket** buff)
@@ -258,10 +247,10 @@ struct rkpPacket* rkpPacket_pop_end(struct rkpPacket** buff)
     }
     return rkpp;
 }
-unsigned rkpPacket_num(const struct rkpPacket* buff)
+unsigned rkpPacket_num(struct rkpPacket** buff)
 {
     unsigned n = 0;
-    const struct rkpPacket* rkpp = buff;
+    const struct rkpPacket* rkpp = *buff;
     while(rkpp != 0)
     {
         rkpp = rkpp -> next;

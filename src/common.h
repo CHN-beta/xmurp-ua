@@ -1,3 +1,4 @@
+#pragma once
 #include <linux/module.h>
 #include <linux/version.h>
 #include <linux/kmod.h>
@@ -13,7 +14,9 @@
 #include <linux/moduleparam.h>
 #include <linux/time.h>
 #include <linux/mutex.h>
-#pragma once
+
+typedef _Bool bool;
+#define static_assert _Static_assert
 
 const static unsigned char* str_uaBegin = "User-Agent: ";
 const static unsigned char* str_uaEnd = "\r\n";
@@ -31,3 +34,9 @@ void rkpFree(void* p)
 {
     kfree(p);
 }
+
+#include "rkpSetting.h"
+#include "rkpPacket.h"
+#include "rkpMap.h"
+#include "rkpStream.h"
+#include "rkpManager.h"
