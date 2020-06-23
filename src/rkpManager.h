@@ -13,7 +13,12 @@ void rkpManager_delete(struct rkpManager*);
 
 unsigned rkpManager_execute(struct rkpManager*, struct sk_buff*);   // 处理一个数据包。返回值为 rkpStream_execute 的返回值。
 unsigned __rkpManager_execute(struct rkpManager*, struct rkpPacket*);
-void __rkpManager_refresh(unsigned long);                       // 清理长时间不活动的流，参数实际上是 rkpm 的地址
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,14,0)
+void __rkpManager_refresh(unsigned long);                           // 清理长时间不活动的流，参数实际上是 rkpm 的地址
+#else
+void __rkpManager_refresh(struct timer_list*);
+#endif
 
 void __rkpManager_lock(struct rkpManager*, unsigned long*);
 void __rkpManager_unlock(struct rkpManager*, unsigned long);
@@ -27,11 +32,16 @@ struct rkpManager* rkpManager_new(void)
         return 0;
     memset(rkpm -> data, 0, sizeof(struct rkpStream*) * 256);
     spin_lock_init(&rkpm -> lock);
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,14,0)
     init_timer(&rkpm -> timer);
     rkpm -> timer.function = __rkpManager_refresh;
     rkpm -> timer.data = (unsigned long)rkpm;
     rkpm -> timer.expires = jiffies + time_keepalive * HZ;
     add_timer(&rkpm -> timer);
+#else
+    rkpm -> timer.expires = jiffies + time_keepalive * HZ;
+    timer_setup(&rkpm -> timer, __rkpManager_refresh, 0);
+#endif
     return rkpm;
 }
 void rkpManager_delete(struct rkpManager* rkpm)
@@ -104,11 +114,19 @@ unsigned __rkpManager_execute(struct rkpManager* rkpm, struct rkpPacket* rkpp)
     return rkpStream_execute(rkps_new, rkpp);
 }
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,14,0)
 void __rkpManager_refresh(unsigned long param)
 {
+    struct rkpManager* rkpm = (struct rkpManager*)param;
+#else
+void __rkpManager_refresh(struct timer_list* timer)
+{
+    struct rkpManager* rkpm = from_timer(rkpm, timer, timer);
+#endif
+
     unsigned i;
     unsigned long flag;
-    struct rkpManager* rkpm = (struct rkpManager*)param;
+
     if(debug)
         printk("rkpManager_refresh\n");
     __rkpManager_lock(rkpm, &flag);
