@@ -16,7 +16,9 @@
 #include <linux/mutex.h>
 
 typedef _Bool bool;
-#define static_assert _Static_assert
+#ifndef static_assert
+    #define static_assert _Static_assert
+#endif
 
 const static unsigned char* str_uaBegin = "User-Agent: ";
 const static unsigned char* str_uaEnd = "\r\n";

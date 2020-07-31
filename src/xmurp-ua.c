@@ -30,9 +30,7 @@ static int __init hook_init(void)
 
 	rkpm = rkpManager_new();
 
-	memcpy(str_uaRkp, "RKP/", 4);
-	memcpy(str_uaRkp + 4, VERSION, 2);
-	memcpy(str_uaRkp + 6, ".0", 3);
+	sprintf(str_uaRkp, "RKP/%d.0", VERSION);
 
 	nfho[0].hooknum = NF_INET_LOCAL_IN;
 	nfho[1].hooknum = NF_INET_LOCAL_OUT;
@@ -49,7 +47,7 @@ static int __init hook_init(void)
     	ret = nf_register_hooks(nfho, 3);
 #endif
 
-	printk("rkp-ua: Started, version %s\n", VERSION);
+	printk("rkp-ua: Started, version %d\n", VERSION);
 	printk("rkp-ua: nf_register_hook returnd %d.\n", ret);
 	printk("rkp-ua: autocapture=%c, mark_capture=0x%x, mark_ack=0x%x\n",
 			'n' + autocapture * ('y' - 'n'), mark_capture, mark_ack);
