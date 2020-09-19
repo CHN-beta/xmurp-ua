@@ -2,21 +2,28 @@
 #include "common.h"
 
 struct rkpMap
-// 以相对序列号记录应用层数据中需要修改的部分的位置，提供修改的函数
+// 记录应用层数据中需要修改的部分的位置，提供修改的函数
+
 {
-    int32_t begin, length;                  // begin 为绝对序列号
-    // int32_t &seq_offset = beign;         // 需要一个差不多的数值作为偏移来计算序列号谁先谁后的问题，这个偏移取为 begin
+    uint32_t begin, length;
+    // begin 为绝对序列号
+
     struct rkpMap *prev, *next;
 };
 
-struct rkpMap* rkpMap_new(int32_t, int32_t);                    // 两个参数分别为起始和终止绝对序列号
+struct rkpMap* rkpMap_new(uint32_t, uint32_t);
 void rkpMap_delete(struct rkpMap*);
 
-unsigned char __rkpMap_map(const struct rkpMap*, int32_t);      // 返回某个序列号对应的映射后的值。假定参数是合法的。这里的参数是相对序列号
-void rkpMap_modify(struct rkpMap**, struct rkpPacket**);  // 对一列序列号连续且递增的包进行修改
+unsigned char __rkpMap_ua(uint32_t);
+// 获得 ua（例如，"RKP/99"）第几个位置上的字符
 
-void rkpMap_insert_begin(struct rkpMap**, struct rkpMap*);      // 在开头位置插入一个映射
+void rkpMap_modify(struct rkpMap**, struct rkpPacket**);
+// 对一列序列号连续且递增的包进行修改
+
+void rkpMap_insert_begin(struct rkpMap**, struct rkpMap*);
 void rkpMap_insert_end(struct rkpMap**, struct rkpMap*);
+// 在指定位置插入映射，假定要插入的映射的前后指针已经置零
+
 void rkpMap_refresh(struct rkpMap**, int32_t);                  // 对于一列序列号递增的映射，删除已经回应的映射
 
 struct rkpMap* rkpMap_new(int32_t seql, int32_t seqr)

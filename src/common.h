@@ -36,9 +36,3 @@ void rkpFree(void* p)
 {
     kfree(p);
 }
-
-#include "rkpSetting.h"
-#include "rkpPacket.h"
-#include "rkpMap.h"
-#include "rkpStream.h"
-#include "rkpManager.h"
