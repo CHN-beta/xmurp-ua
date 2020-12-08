@@ -10,7 +10,7 @@ define KernelPackage/xmurp-ua
 	SUBMENU:=Other modules
 	TITLE:=xmurp-ua
 	FILES:=$(PKG_BUILD_DIR)/xmurp-ua.ko
-#	AUTOLOAD:=$(call AutoLoad, 99, rkp-ua)
+#	AUTOLOAD:=$(call AutoLoad, 99, xmurp-ua)
 	KCONFIG:=
 endef
 

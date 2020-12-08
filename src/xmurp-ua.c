@@ -3,7 +3,11 @@
 static struct nf_hook_ops nfho[3];		// 需要在 INPUT、OUTPUT、FORWARD 各挂一个
 static struct rkpManager* rkpm;
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,2,0)
 unsigned int hook_funcion(void *priv, struct sk_buff *skb, const struct nf_hook_state *state)
+#else
+unsigned int hook_funcion(const struct nf_hook_ops *ops, struct sk_buff *skb, const struct net_device *in, const struct net_device *out, int (*okfn)(struct sk_buff *))
+#endif
 {
 	unsigned rtn;
 
