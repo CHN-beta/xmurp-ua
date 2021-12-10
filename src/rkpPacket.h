@@ -135,11 +135,11 @@ unsigned rkpPacket_appLen(const struct rkpPacket* rkpp)
 {
     return ntohs(ip_hdr(rkpp->skb)->tot_len) - ip_hdr(rkpp->skb)->ihl * 4 - tcp_hdr(rkpp->skb)->doff * 4;
 }
-int32_t rkpPacket_seq(const struct rkpPacket* rkpp, const int32_t offset)
+int32_t rkpPacket_seq(const struct rkpPacket* rkpp)
 {
     return (int32_t)ntohl(tcp_hdr(rkpp->skb)->seq) - offset;
 }
-int32_t rkpPacket_seqAck(const struct rkpPacket* rkpp, const int32_t offset)
+int32_t rkpPacket_seqAck(const struct rkpPacket* rkpp)
 {
     return (int32_t)ntohl(tcp_hdr(rkpp->skb)->ack_seq) - offset;
 }
@@ -210,12 +210,7 @@ bool __rkpPacket_makeWriteable(struct rkpPacket* rkpp)
     return true;
 }
 
-void rkpPacket_makeOffset(const struct rkpPacket* rkpp, int32_t* offsetp)
-{
-    *offsetp = rkpPacket_seq(rkpp, 0) + rkpPacket_appLen(rkpp);
-}
-
-void rkpPacket_insert_auto(struct rkpPacket** buff, struct rkpPacket* rkpp, int32_t offset)
+void rkpPacket_insert_auto(struct rkpPacket** buff, struct rkpPacket* rkpp)
 {
     // 如果链表是空的，那么就直接加进去
     if(*buff == 0)
